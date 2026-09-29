@@ -310,6 +310,9 @@ class SzzDialog(QDialog):
                 self.zone_all.setChecked(True)
         self.zone_list.blockSignals(False)
         self.zone_list.setEnabled(self.zone_mode.checkedId() == LIST)
+        # вопрос о зонах появился или исчез — окно по содержимому, без пустого места
+        self.layout().activate()
+        self.resize(self.width(), self.sizeHint().height())
 
     def _zone_mode_changed(self, *args):
         self.zone_list.setEnabled(self.zone_mode.checkedId() == LIST)

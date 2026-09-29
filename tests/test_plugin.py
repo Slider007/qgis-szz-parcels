@@ -602,6 +602,21 @@ class PluginTest(unittest.TestCase):
         self.assertEqual(dialog.counts, (1, 6, 1))
         self.assertNotIn("SZZ", dialog.parameters())
 
+    def test_dialog_shrinks_when_zones_hidden(self):
+        dialog = self.open()
+        dialog.show()
+        app.processEvents()
+        self.assertTrue(dialog.zones_box.isVisible())
+        tall = dialog.height()
+        dialog.same.setChecked(True)
+        app.processEvents()
+        self.assertFalse(dialog.zones_box.isVisible())
+        self.assertLess(dialog.height(), tall - 50)  # вопрос о зонах не оставил пустого места
+        dialog.same.setChecked(False)
+        app.processEvents()
+        self.assertTrue(dialog.zones_box.isVisible())
+        self.assertGreaterEqual(dialog.height(), tall - 5)
+
     def test_unclosed_line_reported(self):
         lines = layer("LineString", [(ring(0, 0, 100, 100, closed=False), [])], name="линия")
         QgsProject.instance().addMapLayer(lines)
