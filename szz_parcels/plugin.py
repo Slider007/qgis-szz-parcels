@@ -163,6 +163,10 @@ class SzzParcelsPlugin:
         text = "В границах СЗЗ: {}, за границей до {:g} м: {}.".format(
             results.get("INSIDE_COUNT", 0), distance, results.get("NEAR_COUNT", 0))
         files = [results[k] for k in ("XLSX", "DOCX") if results.get(k)]
+        if files:
+            text += " Файлы: {} — в папке «{}».".format(
+                ", ".join("«{}»".format(os.path.basename(f)) for f in files),
+                os.path.basename(os.path.dirname(files[0])))
         widget = self.iface.messageBar().createMessage(TITLE, text)
         for path in files:
             button = QPushButton("Открыть {}".format("Excel" if path.endswith(".xlsx") else "Word"))

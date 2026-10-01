@@ -27,6 +27,7 @@ from qgis.PyQt.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -34,12 +35,15 @@ from qgis.PyQt.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QRadioButton,
+    QScrollArea,
     QVBoxLayout,
+    QWidget,
 )
 
 from . import core
 
 SETTINGS = "szz_parcels/"
+MIN_WIDTH = 560
 OUTPUT_FOLDER = "Карты СЗЗ"
 ALL, SELECTED, LIST = 0, 1, 2
 INSIDE_COLOR = QColor(214, 39, 40)
@@ -69,7 +73,6 @@ class SzzDialog(QDialog):
         self.iface = iface
         self.run_callback = run_callback
         self.setWindowTitle("Реестр участков в СЗЗ")
-        self.setMinimumWidth(560)
         self._connected = []  # (слой, сигнал) — отключаются при смене слоя и закрытии
         self._bands = []
         self.error = None
@@ -82,11 +85,22 @@ class SzzDialog(QDialog):
         self._build()
         self._pick_defaults()
         self._layers_changed()
+        self._fit()
 
     # ------------------------------------------------------------ окно
 
     def _build(self):
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        # содержимое — в прокрутке: на ноутбуке окно с вопросом о зонах не уходит за край экрана
+        self.body = QWidget()
+        layout = QVBoxLayout(self.body)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setWidget(self.body)
+        outer.addWidget(self.scroll, 1)
 
         box = QGroupBox("Предприятие и СЗЗ")
         form = QFormLayout(box)
@@ -99,6 +113,8 @@ class SzzDialog(QDialog):
         form.addRow("", self.same)
         self.szz = QgsMapLayerComboBox()
         self.szz.setFilters(_layer_filter("PolygonLayer"))
+        # слой СЗЗ не угадывается: без слоя «СЗЗ…» в проекте выбор пустой, а не слой участков
+        self.szz.setAllowEmptyLayer(True)
         self.szz_label = QLabel("Слой СЗЗ:")
         form.addRow(self.szz_label, self.szz)
         layout.addWidget(box)
@@ -114,7 +130,7 @@ class SzzDialog(QDialog):
             self.zone_mode.addButton(button, mode)
             zones.addWidget(button)
         self.zone_list = QListWidget()
-        self.zone_list.setMaximumHeight(130)
+        self.zone_list.setMaximumHeight(110)
         zones.addWidget(self.zone_list)
         layout.addWidget(self.zones_box)
 
@@ -156,7 +172,7 @@ class SzzDialog(QDialog):
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.status.setTextFormat(Qt.TextFormat.RichText)
-        layout.addWidget(self.status)
+        outer.addWidget(self.status)
 
         buttons = QDialogButtonBox()
         self.run_button = buttons.addButton("Сформировать",
@@ -164,7 +180,7 @@ class SzzDialog(QDialog):
         close = buttons.addButton("Закрыть", QDialogButtonBox.ButtonRole.RejectRole)
         close.clicked.connect(self.close)
         self.run_button.clicked.connect(self._run)
-        layout.addWidget(buttons)
+        outer.addWidget(buttons)
 
         self.enterprise.layerChanged.connect(self._layers_changed)
         self.szz.layerChanged.connect(self._layers_changed)
@@ -180,6 +196,7 @@ class SzzDialog(QDialog):
 
     def _file_row(self, form, label, file_filter, suffix):
         on = QCheckBox()
+        on.setToolTip("Сохранять таблицы в {}".format(label.rstrip(":")))
         on.setChecked(_settings_value(suffix, True, bool))
         widget = QgsFileWidget()
         widget.setStorageMode(QgsFileWidget.StorageMode.SaveFile)
@@ -204,6 +221,7 @@ class SzzDialog(QDialog):
                     core.find_field(layer.fields().names(), core.CAD_FIELDS):
                 self.parcels.setLayer(layer)
                 break
+        self.szz.setLayer(None)
         for layer in layers:
             name = layer.name().lower()
             if layer.geometryType() == Qgis.GeometryType.Polygon and \
@@ -259,6 +277,7 @@ class SzzDialog(QDialog):
 
     def _selection_changed(self, *args):
         self._update_selection_labels()
+        self._fit()
         self.schedule()
 
     def _update_selection_labels(self):
@@ -311,8 +330,7 @@ class SzzDialog(QDialog):
         self.zone_list.blockSignals(False)
         self.zone_list.setEnabled(self.zone_mode.checkedId() == LIST)
         # вопрос о зонах появился или исчез — окно по содержимому, без пустого места
-        self.layout().activate()
-        self.resize(self.width(), self.sizeHint().height())
+        self._fit()
 
     def _zone_mode_changed(self, *args):
         self.zone_list.setEnabled(self.zone_mode.checkedId() == LIST)
@@ -342,6 +360,37 @@ class SzzDialog(QDialog):
             path = os.path.join(folder, "Реестр участков в СЗЗ." + widget.property("suffix"))
             widget.setProperty("default", path)
             widget.setFilePath(path)
+
+    def _output_files(self):
+        """Пути Excel и Word. Файл по умолчанию, который уже есть (прежний реестр), не
+        затирается: новый получает номер «(2)», «(3)»… общий для обоих файлов.
+        Путь, выбранный вручную, — как есть: при выборе QGIS уже спросил о замене."""
+        chosen = {}
+        for key, on, widget in (("XLSX", self.xlsx_on, self.xlsx), ("DOCX", self.docx_on, self.docx)):
+            if on.isChecked() and widget.filePath():
+                chosen[key] = (widget.filePath(), widget.filePath() == widget.property("default"))
+        number = 1
+        while any(auto and os.path.exists(_numbered(path, number))
+                  for path, auto in chosen.values()):
+            number += 1
+        return {key: _numbered(path, number) if auto else path
+                for key, (path, auto) in chosen.items()}
+
+    def _fit(self):
+        """Размер окна по содержимому: ширина — чтобы подписи не обрезались, высота — без
+        пустого места, но не выше экрана (остальное — прокруткой)."""
+        self.body.adjustSize()
+        bar = self.scroll.verticalScrollBar().sizeHint().width()
+        self.scroll.setMinimumWidth(self.body.minimumSizeHint().width() + bar)
+        layout = self.layout()
+        layout.activate()
+        outside = self.sizeHint().height() - self.scroll.sizeHint().height()
+        wanted = outside + self.body.sizeHint().height() + 2 * self.scroll.frameWidth()
+        screen = self.screen() if hasattr(self, "screen") else None
+        if screen is not None:
+            wanted = min(wanted, screen.availableGeometry().height() - 60)
+        width = max(MIN_WIDTH, self.minimumSizeHint().width(), self.width() if self.isVisible() else 0)
+        self.resize(width, wanted)
 
     # ------------------------------------------------------------ выбор → расчёт
 
@@ -396,9 +445,10 @@ class SzzDialog(QDialog):
             "OBJECT": self.object_name.text().strip(),
             "INSIDE": "TEMPORARY_OUTPUT",
             "NEAR": "TEMPORARY_OUTPUT",
-            "XLSX": self.xlsx.filePath() if self.xlsx_on.isChecked() else None,
-            "DOCX": self.docx.filePath() if self.docx_on.isChecked() else None,
+            "XLSX": None,
+            "DOCX": None,
         }
+        params.update(self._output_files())
         if not self.same.isChecked():
             szz = self.szz.currentLayer()
             mode, ids = self.zone_choice()
@@ -444,7 +494,13 @@ class SzzDialog(QDialog):
                 self.error = str(e)
         self.run_button.setEnabled(self.error is None)
         if self.error:
-            self.status.setText('<span style="color:#b00">{}</span>'.format(self.error))
+            # без жёсткого цвета: тёмно-красный не читается в тёмной теме QGIS
+            self.status.setText("⚠ <b>{}</b>".format(self.error))
+        # строка итога выросла или сжалась (1–3 строки) — подогнать окно, иначе лишняя прокрутка
+        height = self.status.heightForWidth(self.status.width()) if self.status.width() else 0
+        if height != getattr(self, "_status_height", None):
+            self._status_height = height
+            self._fit()
 
     def _geometries(self, features, layer_crs, work_crs):
         transform = None
@@ -474,16 +530,19 @@ class SzzDialog(QDialog):
             enterprise = core.area_geometry(
                 self._geometries(ent_features, enterprise_layer.crs(), work_crs))
         except ValueError:
-            raise ValueError("Граница предприятия: среди линий есть незамкнутая.")
+            raise ValueError("Граница предприятия не замкнута: соедините концы линии в чертеже "
+                             "или нарисуйте границу полигоном.")
         if enterprise is None:
-            raise ValueError("В границе предприятия нет ни одного контура.")
+            raise ValueError("В границе предприятия нет контуров — выберите другой слой или "
+                             "снимите «только выделенные объекты».")
         zone = None
         if not self.same.isChecked():
             szz = self.szz.currentLayer()
             zone = core.area_geometry(
                 self._geometries(self._zone_features(szz), szz.crs(), work_crs))
             if zone is None:
-                raise ValueError("В выбранных зонах СЗЗ нет ни одного контура.")
+                raise ValueError("В выбранных зонах СЗЗ нет контуров — отметьте другую зону "
+                                 "или выберите «все зоны слоя».")
         classifier = core.Classifier(enterprise, zone, self.distance.value())
         search = classifier.search_area()
         request = core.parcel_request(search, work_crs, parcels.crs(),
@@ -536,3 +595,11 @@ class SzzDialog(QDialog):
         self._timer.stop()
         self._clear_bands()
         self._disconnect_layers()
+
+
+def _numbered(path, number):
+    """«Реестр.xlsx» → «Реестр (2).xlsx»; номер 1 — путь как есть."""
+    if number <= 1:
+        return path
+    stem, ext = os.path.splitext(path)
+    return "{} ({}){}".format(stem, number, ext)

@@ -171,7 +171,8 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
     def _field(self, parameters, name, context, source, candidates):
         field = self.parameterAsString(parameters, name, context)
         if field and source.fields().indexOf(field) < 0:
-            raise QgsProcessingException(self.tr("В слое участков нет поля «{}»").format(field))
+            raise QgsProcessingException(self.tr(
+                "В слое участков нет поля «{}» — выберите поле из списка в параметрах.").format(field))
         return field or core.find_field(source.fields().names(), candidates)
 
     def _geometries(self, source, crs, context, feedback):
@@ -199,8 +200,25 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
                 "{}: среди линий есть незамкнутая. Замкните контур или нарисуйте полигон.")
                 .format(what))
         if geometry is None:
-            raise QgsProcessingException(self.tr("{}: нет ни одного контура.").format(what))
+            raise QgsProcessingException(self.tr(
+                "{}: нет ни одного контура — проверьте слой; если взяты только выделенные "
+                "объекты, выделите нужные.").format(what))
         return geometry
+
+    def _save(self, feedback, path, program, write, *args):
+        """Записать файл; не вышло (открыт в Excel/Word, нет доступа) — предупреждение по-русски,
+        расчёт не обрывается: слои всё равно попадают в проект."""
+        try:
+            if os.path.dirname(path):
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+            write(path, *args)
+            return True
+        except OSError:
+            feedback.pushWarning(self.tr(
+                "Не удалось сохранить «{}»: файл, похоже, открыт в {} или папка недоступна — "
+                "закройте его и нажмите «Сформировать» ещё раз. Слои в проекте уже созданы.")
+                .format(os.path.basename(path), program))
+            return False
 
     def processAlgorithm(self, parameters, context, feedback):
         # неверные контуры (самопересечения в выгрузках ЕГРН) исправляются в core через
@@ -274,8 +292,10 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         if parcels.sourceCrs() != work_crs:
             to_work = QgsCoordinateTransform(parcels.sourceCrs(), work_crs,
                                              context.transformContext())
-        rows, empty = core.collect(parcels.getFeatures(request), cad_field, to_work, classifier,
-                                   feedback, parcels.featureCount())
+        # ход — от участков в зоне поиска, а не от всего слоя (выгрузка бывает на весь район)
+        candidates = list(parcels.getFeatures(request))
+        rows, empty = core.collect(candidates, cad_field, to_work, classifier,
+                                   feedback, len(candidates))
         if rows is None:
             return {}
         if empty:
@@ -367,11 +387,7 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             })
         xlsx = self.parameterAsFileOutput(parameters, self.XLSX, context)
         docx = self.parameterAsFileOutput(parameters, self.DOCX, context)
-        for path in (xlsx, docx):
-            if path and os.path.dirname(path):
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-        if xlsx:
-            export.write_xlsx(xlsx, export_tables)
+        if xlsx and self._save(feedback, xlsx, "Excel", export.write_xlsx, export_tables):
             results[self.XLSX] = xlsx
         if docx:
             notes = []
@@ -389,8 +405,8 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             title = self.tr("Реестр земельных участков в санитарно-защитной зоне")
             if title_object:
                 title += " " + title_object
-            export.write_docx(docx, title, notes, export_tables)
-            results[self.DOCX] = docx
+            if self._save(feedback, docx, "Word", export.write_docx, title, notes, export_tables):
+                results[self.DOCX] = docx
         feedback.setProgress(100)
         results.update({"INSIDE_COUNT": len(inside), "NEAR_COUNT": len(near),
                         "OWN_COUNT": len(own), "FROM_ENTERPRISE": from_enterprise})

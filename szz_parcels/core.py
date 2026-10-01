@@ -108,7 +108,7 @@ def area_geometry(geometries):
                 line = QgsGeometry(line.constGet().segmentize()) if line.constGet() else line
                 points = line.asPolyline()
                 if len(points) < 4 or points[0].distance(points[-1]) > 1e-6:
-                    raise ValueError("незамкнутая линия")
+                    raise ValueError("граница не замкнута — соедините концы линии")
                 parts.append(_valid(QgsGeometry.fromPolygonXY([points])))
     parts = [p for p in parts if p is not None]
     if not parts:

@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 from qgis.PyQt.QtCore import QCoreApplication, QSettings  # noqa: E402
 
 PROFILE = os.path.join(HERE, "_profile")
-OUT = os.path.join(HERE, "_out")
+OUT = os.path.join(HERE, "_out", "test")  # tests/_out/check — отчёт полной проверки, не трогать
 shutil.rmtree(PROFILE, ignore_errors=True)
 shutil.rmtree(OUT, ignore_errors=True)
 os.makedirs(OUT)
@@ -176,6 +176,8 @@ class Feedback(QgsProcessingFeedback):
         super().__init__()
         self.warnings = []
         self.infos = []
+        self.progress = []
+        self.progressChanged.connect(self.progress.append)
 
     def pushWarning(self, text):
         self.warnings.append(text)
@@ -302,6 +304,36 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual((feature["category"], feature["vri_doc"]),
                          ("Категория не установлена", "—"))
 
+
+    def test_unwritable_file_keeps_layers(self):
+        """Excel нельзя записать (открыт, путь занят): слои и Word всё равно есть, ошибка — по-русски."""
+        busy = os.path.join(OUT, "занят.xlsx")
+        os.makedirs(busy, exist_ok=True)
+        docx = os.path.join(OUT, "при_занятом.docx")
+        result, feedback = run(XLSX=busy, DOCX=docx)
+        self.assertEqual(result["INSIDE_COUNT"], 3)
+        self.assertIsNotNone(QgsProcessingContextless.layer(result["INSIDE"]))
+        self.assertTrue(os.path.isfile(docx))
+        self.assertNotIn("XLSX", result)
+        text = " ".join(feedback.warnings)
+        self.assertIn("Не удалось сохранить", text)
+        self.assertIn("занят.xlsx", text)
+        self.assertNotIn("Errno", text)
+
+    def test_wrong_field_message_says_what_to_do(self):
+        with self.assertRaisesRegex(Exception, "нет поля «нет_такого».*выберите"):
+            run(CAD_FIELD="нет_такого")
+
+    def test_progress_follows_selected_parcels(self):
+        """Ход считается от участков в зоне поиска, а не от всего слоя."""
+        rows = [(rect(*box), [cad, cat, vri]) for cad, box, cat, vri in PARCELS]
+        rows += [(rect(5000 + 30 * i, 0, 5010 + 30 * i, 10), ["1:1:1:%d" % i, None, None])
+                 for i in range(300)]
+        big = layer("Polygon", rows, PARCEL_FIELDS)
+        _, feedback = run(parcels=big)
+        before_end = [p for p in feedback.progress if p < 100]
+        self.assertGreaterEqual(max(before_end), 70)
+
     def test_szz_is_enterprise_boundary(self):
         result, _ = run(szz=False)
         inside = QgsProcessingContextless.layer(result["INSIDE"])
@@ -347,7 +379,7 @@ class RegistryTest(unittest.TestCase):
 
     def test_unclosed_enterprise_line(self):
         lines = layer("LineString", [(ring(0, 0, 100, 100, closed=False), [])])
-        with self.assertRaisesRegex(Exception, "незамкнутая"):
+        with self.assertRaisesRegex(Exception, "незамкнут.*[Зз]амкните контур"):
             run(enterprise=lines)
 
     def test_other_crs(self):
@@ -607,15 +639,93 @@ class PluginTest(unittest.TestCase):
         dialog.show()
         app.processEvents()
         self.assertTrue(dialog.zones_box.isVisible())
-        tall = dialog.height()
+        body = dialog.scroll.widget()
         dialog.same.setChecked(True)
         app.processEvents()
         self.assertFalse(dialog.zones_box.isVisible())
-        self.assertLess(dialog.height(), tall - 50)  # вопрос о зонах не оставил пустого места
+        # вопрос о зонах не оставил пустого места: содержимое не растянуто сверх нужного
+        self.assertLessEqual(body.height(), body.sizeHint().height() + 5)
         dialog.same.setChecked(False)
         app.processEvents()
         self.assertTrue(dialog.zones_box.isVisible())
-        self.assertGreaterEqual(dialog.height(), tall - 5)
+        self.assertLessEqual(body.height(), body.sizeHint().height() + 5)
+
+
+    def test_checkbox_texts_not_clipped(self):
+        """Подписи галочек целиком — и с вопросом о зонах, и без (Fusion, шрифт как в Windows)."""
+        from qgis.PyQt.QtWidgets import QCheckBox
+        dialog = self.open()
+        dialog.show()
+        for same in (False, True):
+            dialog.same.setChecked(same)
+            app.processEvents()
+            for box in dialog.findChildren(QCheckBox):
+                if box.isVisible() and box.text():
+                    self.assertGreaterEqual(box.width(), box.sizeHint().width(), box.text())
+
+    def test_dialog_fits_screen(self):
+        dialog = self.open()
+        dialog.show()
+        app.processEvents()
+        self.assertTrue(dialog.zones_box.isVisible())
+        screen = dialog.screen().availableGeometry()
+        self.assertLessEqual(dialog.frameGeometry().height(), screen.height())
+        # всё содержимое доступно прокруткой
+        self.assertTrue(dialog.scroll.widgetResizable())
+
+    def test_error_readable_in_dark_theme(self):
+        lines = layer("LineString", [(ring(0, 0, 100, 100, closed=False), [])], name="линия")
+        QgsProject.instance().addMapLayer(lines)
+        dialog = self.open()
+        dialog.enterprise.setLayer(lines)
+        dialog.update_preview()
+        self.assertNotIn("#b00", dialog.status.text())  # жёсткий тёмно-красный не виден на тёмном фоне
+        self.assertIn("⚠", dialog.status.text())
+
+    def test_szz_layer_not_guessed(self):
+        """Нет слоя с «СЗЗ» в названии — слой СЗЗ не подставляется (раньше брался слой участков)."""
+        QgsProject.instance().removeMapLayer(self.szz.id())
+        dialog = self.open()
+        self.assertIsNone(dialog.szz.currentLayer())
+        self.assertIn("слой СЗЗ", dialog.error)
+
+    def test_file_checkboxes_have_tooltips(self):
+        dialog = self.open()
+        self.assertIn("Excel", dialog.xlsx_on.toolTip())
+        self.assertIn("Word", dialog.docx_on.toolTip())
+
+    def test_default_files_not_overwritten(self):
+        """Прежний реестр с тем же именем не затирается: новый — «(2)»."""
+        project_dir = os.path.join(OUT, "Проект для повтора")
+        os.makedirs(project_dir, exist_ok=True)
+        QgsProject.instance().setFileName(os.path.join(project_dir, "п.qgz"))
+        dialog = self.open()
+        dialog.xlsx_on.setChecked(True)
+        dialog.docx_on.setChecked(False)
+        old = dialog.xlsx.filePath()
+        os.makedirs(os.path.dirname(old), exist_ok=True)
+        with open(old, "w") as f:
+            f.write("прежний реестр")
+        dialog._run()
+        self.wait()
+        with open(old) as f:
+            self.assertEqual(f.read(), "прежний реестр")
+        new = old.replace(".xlsx", " (2).xlsx")
+        self.assertTrue(os.path.isfile(new))
+        self.assertIn("(2)", self.iface.bar.messages[-1][0])
+
+    def test_unwritable_file_message(self):
+        dialog = self.open()
+        busy = os.path.join(OUT, "занят2.xlsx")
+        os.makedirs(busy, exist_ok=True)
+        dialog.xlsx_on.setChecked(True)
+        dialog.xlsx.setFilePath(busy)
+        dialog._run()
+        self.wait()
+        group = QgsProject.instance().layerTreeRoot().findGroup("Реестр участков в СЗЗ")
+        self.assertIsNotNone(group)  # слои не потерялись
+        texts = [t for t, level in self.iface.bar.messages if level == Qgis.MessageLevel.Warning]
+        self.assertTrue(any("Не удалось сохранить" in t and "закройте" in t for t in texts), texts)
 
     def test_unclosed_line_reported(self):
         lines = layer("LineString", [(ring(0, 0, 100, 100, closed=False), [])], name="линия")
@@ -623,7 +733,8 @@ class PluginTest(unittest.TestCase):
         dialog = self.open()
         dialog.enterprise.setLayer(lines)
         dialog.update_preview()
-        self.assertIn("незамкнутая", dialog.error)
+        self.assertIn("не замкнута", dialog.error)
+        self.assertIn("соедините концы", dialog.error)  # ошибка говорит, что делать
         self.assertFalse(dialog.run_button.isEnabled())
 
     def test_run_makes_layers_and_files(self):
