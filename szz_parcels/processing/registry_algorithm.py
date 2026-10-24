@@ -425,7 +425,8 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             value_col = 4 if has_value else None
             # направление — 18: «предприятия» в шапке не рвётся по слогам; место — у ВРИ
             vri_w = 28 if with_direction else 32
-            widths = [7, 21, 24, vri_w] + ([17] if has_value else []) + ([18] if with_direction else [])
+            # «№ п/п» — 9: при 7 шапка переносилась на две строки
+            widths = [9, 21, 22, vri_w] + ([17] if has_value else []) + ([18] if with_direction else [])
             excel = [7, 22, 30, 50] + ([16] if has_value else []) + ([14] if with_direction else [])
             export_tables.append({
                 "title": titles[i],

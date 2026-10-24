@@ -8,6 +8,7 @@ from qgis.core import (
     QgsProcessingFeatureSourceDefinition,
     QgsProcessingContext,
     QgsProcessingFeedback,
+    QgsMessageLog,
     QgsProject,
     QgsVectorLayer,
 )
@@ -25,6 +26,7 @@ except ImportError:  # Qt5 / QGIS 3
 PLUGIN_DIR = os.path.dirname(__file__)
 ALGORITHM = "szzparcels:registry"
 NSPD_ALGORITHM = "szzparcels:nspd"
+NSPD_STYLE = os.path.join(PLUGIN_DIR, "styles", "nspd_parcels.qml")
 TITLE = "Участки в СЗЗ"
 GROUP = "Реестр участков в СЗЗ"
 
@@ -184,6 +186,10 @@ class SzzParcelsPlugin:
             self.message("Участки загружены, но файл «{}» не открылся.".format(path),
                          Qgis.MessageLevel.Critical, 0)
             return
+        # стиль пользователя (2026-10-24): цвета по категориям земель, подписи «:номер»
+        message, styled = layer.loadNamedStyle(NSPD_STYLE)
+        if not styled:
+            QgsMessageLog.logMessage("Стиль участков НСПД не применён: {}".format(message), TITLE)
         project = QgsProject.instance()
         project.addMapLayer(layer, False)
         project.layerTreeRoot().insertLayer(0, layer)

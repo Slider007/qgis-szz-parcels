@@ -1049,6 +1049,12 @@ class PluginTest(unittest.TestCase):
         self.assertIn("Загружено участков с НСПД", text)
         # второй раз в тот же день — новый файл « 2», прежний не тронут
         self.assertTrue(dialog.nspd_parameters()["OUTPUT"].endswith(" 2.gpkg"))
+        # стиль пользователя: цвета по категориям земель, подписи — конец кадастрового номера
+        renderer = layer.renderer()
+        self.assertEqual(renderer.type(), "categorizedSymbol")
+        self.assertEqual(renderer.classAttribute(), "land_record_category_type")
+        self.assertIn("Земли населенных пунктов", [c.value() for c in renderer.categories()])
+        self.assertTrue(layer.labelsEnabled())
 
     def test_nspd_real_network_in_background(self):
         """Кнопка → фоновая задача → настоящий запрос по HTTP к подставному НСПД."""
