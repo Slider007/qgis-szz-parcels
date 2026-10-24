@@ -84,7 +84,7 @@ def windows():
             QgsProject.instance().clear()
         else:
             _project(closed)
-        dialog = SzzDialog(iface, lambda params, d=None: None)
+        dialog = SzzDialog(iface, lambda params, d=None: None, lambda params, d=None: None)
         dialog.xlsx_on.setChecked(True)
         dialog.docx_on.setChecked(True)
         dialog.same.setChecked(same)

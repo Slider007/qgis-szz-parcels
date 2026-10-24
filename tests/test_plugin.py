@@ -30,6 +30,7 @@ ORG = "szz-parcels-tests"
 QCoreApplication.setOrganizationName(ORG)
 QCoreApplication.setApplicationName(ORG)
 
+import json  # noqa: E402
 import time  # noqa: E402
 
 from qgis.core import (  # noqa: E402
@@ -40,6 +41,7 @@ from qgis.core import (  # noqa: E402
     QgsCoordinateTransform,
     QgsFeature,
     QgsGeometry,
+    QgsPointXY,
     QgsProcessingFeatureSourceDefinition,
     QgsProcessingFeedback,
     QgsProject,
@@ -72,7 +74,7 @@ Processing.initialize()
 with warnings.catch_warnings():
     warnings.simplefilter("error", DeprecationWarning)
     import szz_parcels  # noqa: E402,F401
-    from szz_parcels import core, export  # noqa: E402
+    from szz_parcels import core, export, nspd  # noqa: E402
     from szz_parcels import plugin as plugin_module  # noqa: E402,F401
     from szz_parcels.processing import registry_algorithm  # noqa: E402,F401
     from szz_parcels.processing.provider import SzzParcelsProvider  # noqa: E402
@@ -334,6 +336,106 @@ class RegistryTest(unittest.TestCase):
         before_end = [p for p in feedback.progress if p < 100]
         self.assertGreaterEqual(max(before_end), 70)
 
+    def test_parcels_in_web_mercator_measured_in_true_metres(self):
+        """Слой участков в EPSG:3857: «метры» Меркатора на 45° длиннее настоящих в 1,4 раза —
+        расчёт должен идти в UTM, иначе «100 м» — это 70 м, а заход в СЗЗ завышен вдвое."""
+        result, _ = run(parcels=parcels_layer("EPSG:3857"), szz=szz_layer())
+        near = QgsProcessingContextless.layer(result["NEAR"])
+        dist = {f["cad_num"]: f["dist_m"] for f in near.getFeatures()}
+        self.assertAlmostEqual(dist["23:47:0107010:3"], 20.0, delta=0.5)
+        self.assertAlmostEqual(dist["23:47:0107010:6"], 10.0, delta=0.5)
+        inside = QgsProcessingContextless.layer(result["INSIDE"])
+        share = {f["cad_num"]: f["szz_pct"] for f in inside.getFeatures()}
+        self.assertAlmostEqual(share["23:47:0107010:2"], 50.0, delta=0.5)
+
+    def test_micro_overlaps_ignored(self):
+        """Расхождение границ — не заход в СЗЗ: меньше 1 м² или полоска уже 0,1 м."""
+        rows = [
+            (rect(149.95, 0, 170, 100), ["1:1:1:1", None, None]),    # полоска 5 см × 100 м = 5 м²
+            (rect(149.3, 0, 170, 1.3), ["1:1:1:2", None, None]),     # 0,7 × 1,3 = 0,91 м², глубоко
+            (rect(148, 20, 170, 22), ["1:1:1:3", None, None]),       # 2 × 2 = 4 м², 2 м вглубь
+        ]
+        mixed = layer("Polygon", rows, PARCEL_FIELDS)
+        result, _ = run(parcels=mixed)
+        inside = [f["cad_num"] for f in QgsProcessingContextless.layer(result["INSIDE"]).getFeatures()]
+        near = {f["cad_num"]: f["dist_m"] for f in QgsProcessingContextless.layer(result["NEAR"]).getFeatures()}
+        self.assertEqual(inside, ["1:1:1:3"])
+        self.assertEqual(near, {"1:1:1:1": 0.0, "1:1:1:2": 0.0})
+
+    def test_depth_by_land_category(self):
+        """Допуск расхождения границ — по категории земель: полоска 0,3 м у населённого пункта —
+        заход в СЗЗ, у промышленности (0,5 м) — нет; 3 м у лесного фонда (5 м) — нет."""
+        cats = [
+            ("1:1:1:1", "Земли населенных пунктов", "ИЖС"),
+            ("1:1:1:2", "Земли промышленности, энергетики, транспорта", "Склады"),
+            ("1:1:1:3", "Земли лесного фонда", None),
+            ("1:1:1:4", "Земли сельскохозяйственного назначения", "Для ведения личного подсобного хозяйства"),
+            ("1:1:1:5", "Земли сельскохозяйственного назначения", "Пашня"),
+        ]
+        widths = {"1:1:1:1": 0.3, "1:1:1:2": 0.3, "1:1:1:3": 3.0, "1:1:1:4": 0.3, "1:1:1:5": 2.0}
+        rows = []
+        for n, (cad, cat, vri) in enumerate(cats):
+            y = 20 * n
+            rows.append((rect(150 - widths[cad], y, 160, y + 10), [cad, cat, vri]))
+        lyr = layer("Polygon", rows, PARCEL_FIELDS)
+        result, _ = run(parcels=lyr)
+        inside = sorted(f["cad_num"] for f in QgsProcessingContextless.layer(result["INSIDE"]).getFeatures())
+        # 0,3 м: населённый пункт (0,1) и ЛПХ (0,2) — заход; промышленность (0,5) — нет;
+        # 3 м у леса (5 м) — нет; 2 м у пашни (2,5 м) — нет
+        self.assertEqual(inside, ["1:1:1:1", "1:1:1:4"])
+        # допуски меняются параметрами
+        result, _ = run(parcels=lyr, DEPTH_INDUSTRY=0.2, DEPTH_FOREST=1.0)
+        inside = sorted(f["cad_num"] for f in QgsProcessingContextless.layer(result["INSIDE"]).getFeatures())
+        self.assertEqual(inside, ["1:1:1:1", "1:1:1:2", "1:1:1:3", "1:1:1:4"])
+
+    def test_depth_group(self):
+        g = core.depth_group
+        self.assertEqual(g("Земли населённых пунктов", None), "settlement")
+        self.assertEqual(g("Земли сельскохозяйственного назначения", "для садоводства"), "garden")
+        self.assertEqual(g("Земли сельскохозяйственного назначения", "Пашня"), "agri")
+        self.assertEqual(g("Земли промышленности, энергетики, транспорта, связи", None), "industry")
+        self.assertEqual(g("Земли особо охраняемых территорий и объектов", None), "forest")
+        self.assertEqual(g("Земли водного фонда", None), "forest")
+        self.assertEqual(g("Земли запаса", None), "forest")
+        self.assertEqual(g("Категория не установлена", None), "other")
+        self.assertEqual(g(None, None), "other")
+
+    def test_rhumb(self):
+        r = core.rhumb
+        self.assertEqual([r(a) for a in (0, 22, 23, 45, 90, 135, 180, 225, 270, 315, 337, 338, -90)],
+                         ["С", "С", "СВ", "СВ", "В", "ЮВ", "Ю", "ЮЗ", "З", "СЗ", "СЗ", "С", "З"])
+
+    def test_direction_column(self):
+        """Румб от центра предприятия (50; 50) и от ближайшей точки его границы."""
+        result, _ = run(szz=False)
+        near = QgsProcessingContextless.layer(result["NEAR"])
+        by_cad = {f["cad_num"]: f["dir"] for f in near.getFeatures()}
+        # :5 (150..170; 100..120): от центра — 61° (СВ); :10 (110..140; 0..30): 115° (ЮВ)
+        self.assertEqual(by_cad["23:47:0107010:5"], "СВ")
+        self.assertEqual(by_cad["23:47:0107010:10"], "ЮВ")
+        inside = QgsProcessingContextless.layer(result["INSIDE"])
+        self.assertIn("dir", inside.fields().names())
+        # от границы: ближайшая точка к :5 — угол (100; 100), отрезок на восток
+        result, _ = run(szz=False, DIRECTION_FROM=1)
+        near = QgsProcessingContextless.layer(result["NEAR"])
+        self.assertEqual({f["cad_num"]: f["dir"] for f in near.getFeatures()}["23:47:0107010:5"], "В")
+        # без направления — столбца нет
+        result, _ = run(DIRECTION=False)
+        self.assertNotIn("dir", QgsProcessingContextless.layer(result["NEAR"]).fields().names())
+
+    def test_direction_in_files(self):
+        xlsx = os.path.join(OUT, "румбы.xlsx")
+        run(szz=False, XLSX=xlsx)
+        near = QgsVectorLayer(xlsx + "|layername=За границей СЗЗ", "x", "ogr")
+        self.assertEqual(near.fields().names()[-1], "Направление от предприятия")
+
+    def test_search_zone_output(self):
+        result, _ = run(distance=15, SEARCH="memory:")
+        zone = QgsProcessingContextless.layer(result["SEARCH"])
+        self.assertEqual(zone.featureCount(), 1)
+        # СЗЗ −50..150 плюс 15 м: ≈ 230² с закруглёнными углами
+        self.assertAlmostEqual(next(zone.getFeatures()).geometry().area(), 230 * 230, delta=230 * 230 * 0.01)
+
     def test_szz_is_enterprise_boundary(self):
         result, _ = run(szz=False)
         inside = QgsProcessingContextless.layer(result["INSIDE"])
@@ -348,7 +450,7 @@ class RegistryTest(unittest.TestCase):
             (6, "23:47:0107010:3", 70.0),
         ])
         self.assertTrue(result["FROM_ENTERPRISE"])
-        self.assertEqual(near.fields().names()[-1], "dist_m")
+        self.assertEqual(near.fields().names()[-2:], ["dist_m", "dir"])
 
     def test_word_titles_when_szz_is_boundary(self):
         docx = os.path.join(OUT, "граница.docx")
@@ -437,13 +539,13 @@ class RegistryTest(unittest.TestCase):
         self.assertTrue(first.isValid())
         self.assertEqual(first.fields().names(), [
             "№ п/п", "Кадастровый номер", "Категория земель", "ВРИ по документу",
-            "Доля участка в СЗЗ, %"])
+            "Доля участка в СЗЗ, %", "Направление от предприятия"])
         rows = [f.attributes() for f in first.getFeatures()]
         self.assertEqual(rows[0][1], "23:47:0107010:2")
         self.assertAlmostEqual(rows[0][4], 50.0)
         second = QgsVectorLayer(xlsx + "|layername=За границей СЗЗ", "x", "ogr")
         self.assertEqual(second.featureCount(), 4)
-        self.assertEqual(second.fields().names()[-1], "Расстояние до СЗЗ, м")
+        self.assertEqual(second.fields().names()[-2:], ["Расстояние до СЗЗ, м", "Направление от предприятия"])
 
         # Word: A4, поля, две таблицы, заголовок строки повторяется на каждой странице
         with zipfile.ZipFile(docx) as z:
@@ -459,6 +561,9 @@ class RegistryTest(unittest.TestCase):
         self.assertIn("СЗЗ ПС", xml)
         self.assertIn("50,0", xml)
         self.assertEqual(xml.count("<w:tblHeader/>"), 2)
+        self.assertIn("Заход меньше 1 м²", xml)
+        self.assertIn("населённых пунктов — 0,1 м", xml)
+        self.assertIn("промышленности — 0,5 м", xml)
 
     def test_empty_tables_in_word(self):
         docx = os.path.join(OUT, "пусто.docx")
@@ -477,6 +582,196 @@ class RegistryTest(unittest.TestCase):
         result, feedback = run(parcels=bare, CAD_FIELD="kn_other")
         self.assertEqual(result["INSIDE_COUNT"], 1)
         self.assertEqual(len([w for w in feedback.warnings if "В слое участков нет поля" in w]), 2)
+
+
+# ------------------------------------------------------------ загрузка с НСПД (сервер подменён)
+
+class FakeNspd:
+    """Подставной НСПД: участки PARCELS, пересекающие присланную область, в EPSG:3857 —
+    в формате настоящего ответа intersects (properties.interactionId, properties.options)."""
+
+    def __init__(self, statuses=(), too_big_area_m2=None):
+        self.statuses = list(statuses)  # коды, которые вернуть до нормального ответа
+        self.too_big = too_big_area_m2   # область больше — ответ 500
+        self.calls = []
+        to_web = QgsCoordinateTransform(QgsCoordinateReferenceSystem(CRS),
+                                        QgsCoordinateReferenceSystem("EPSG:3857"), QgsProject.instance())
+        self.to_wgs = QgsCoordinateTransform(QgsCoordinateReferenceSystem("EPSG:3857"),
+                                             QgsCoordinateReferenceSystem("EPSG:4326"), QgsProject.instance())
+        # как настоящий НСПД: один объект на участок, многоконтурный — MultiPolygon
+        grouped = {}
+        for cad, box, cat, vri in PARCELS:
+            entry = grouped.setdefault(cad, [[], cat, vri])
+            if box not in entry[0]:
+                entry[0].append(box)
+        self.features = []
+        for n, (cad, (boxes, cat, vri)) in enumerate(grouped.items(), 1):
+            polygons = []
+            for box in boxes:
+                g = rect(*box)
+                g.transform(to_web)
+                polygons.append([[[p.x(), p.y()] for p in g.asPolygon()[0]]])
+            self.features.append({
+                "type": "Feature", "geometry": {"type": "MultiPolygon", "coordinates": polygons},
+                "properties": {"interactionId": 1000 + n, "options": {
+                    "cad_num": cad, "land_record_category_type": cat,
+                    "permitted_use_established_by_document": vri,
+                    "readable_address": ["край Краснодарский", "г. Новороссийск"]}}})
+
+    def __call__(self, body, feedback=None):
+        from osgeo import ogr
+        area = QgsGeometry.fromWkt(ogr.CreateGeometryFromJson(
+            json.dumps(body["geom"]["features"][0]["geometry"])).ExportToWkt())
+        self.calls.append(area)
+        assert body["categories"] == [{"id": 36368}]
+        if self.statuses:
+            return self.statuses.pop(0), b""
+        if self.too_big is not None:
+            metric = QgsGeometry(area)
+            metric.transform(QgsCoordinateTransform(QgsCoordinateReferenceSystem("EPSG:4326"),
+                                                    QgsCoordinateReferenceSystem(CRS), QgsProject.instance()))
+            if metric.area() > self.too_big:
+                return 500, b""
+        found = []
+        for f in self.features:
+            g = nspd.geometry(f["geometry"])
+            g.transform(self.to_wgs)
+            if g.intersects(area):
+                found.append(f)
+        return 200, json.dumps({"type": "FeatureCollection", "features": found}).encode()
+
+
+def use_nspd(fake):
+    nspd.TRANSPORT = fake
+    nspd.SLEEP = lambda seconds: None
+    return fake
+
+
+def run_nspd(distance=100.0, szz=False, name="нспд.gpkg", **extra):
+    path = os.path.join(OUT, name)
+    params = {"ENTERPRISE": enterprise_layer(), "DISTANCE": distance, "OUTPUT": path}
+    if szz is not False:
+        params["SZZ"] = szz or szz_layer()
+    params.update(extra)
+    feedback = Feedback()
+    result = processing.run("szzparcels:nspd", params, feedback=feedback)
+    return result, QgsVectorLayer(result["OUTPUT"], "n", "ogr"), feedback
+
+
+class NspdTest(unittest.TestCase):
+    def tearDown(self):
+        nspd.TRANSPORT = nspd.post
+        nspd.SLEEP = time.sleep
+
+    def test_payload_is_wgs84_geojson(self):
+        body = nspd.payload(QgsGeometry.fromWkt("POLYGON((37.7 44.7, 37.8 44.7, 37.8 44.8, 37.7 44.7))"))
+        self.assertEqual(body["categories"], [{"id": 36368}])
+        geometry = body["geom"]["features"][0]["geometry"]
+        self.assertEqual(geometry["type"], "Polygon")
+        self.assertAlmostEqual(geometry["coordinates"][0][0][0], 37.7)
+
+    def test_loads_parcels_in_search_zone(self):
+        fake = use_nspd(FakeNspd())
+        result, loaded, _ = run_nspd(distance=100)
+        self.assertTrue(loaded.isValid())
+        self.assertEqual(loaded.crs().authid(), CRS)  # в СК границы предприятия, не 3857
+        cads = sorted(set(f["cad_num"] for f in loaded.getFeatures()))
+        # граница 0..100 + 100 м: всё, кроме :4 (300..320) и :6 (−95..−60 — заходит в −100)
+        self.assertNotIn("23:47:0107010:4", cads)
+        self.assertIn("23:47:0107010:3", cads)
+        self.assertEqual(result["COUNT"], loaded.featureCount())
+        # каждый участок — одна запись; многоконтурный :6 — оба контура; адрес-список — строкой
+        all_cads = [f["cad_num"] for f in loaded.getFeatures()]
+        self.assertEqual(len(all_cads), len(set(all_cads)))
+        ten = next(f for f in loaded.getFeatures() if f["cad_num"] == "23:47:0107010:10")
+        self.assertEqual(ten["readable_address"], "край Краснодарский; г. Новороссийск")
+        self.assertAlmostEqual(ten.geometry().area(), 900, delta=1)  # 30×30 м после 3857 → МСК
+        self.assertEqual(len(fake.calls), 1)
+
+    def test_registry_on_loaded_layer(self):
+        """Загруженный слой сразу годится для реестра: те же ответы, что на исходных участках."""
+        use_nspd(FakeNspd())
+        _, loaded, _ = run_nspd(distance=100, szz=None)
+        result, _ = run(parcels=loaded)
+        self.assertEqual((result["INSIDE_COUNT"], result["NEAR_COUNT"], result["OWN_COUNT"]), (3, 4, 1))
+
+    def test_retries_on_597(self):
+        fake = use_nspd(FakeNspd(statuses=[597, 597]))
+        result, _, _ = run_nspd()
+        self.assertGreater(result["COUNT"], 0)
+        self.assertEqual(len(fake.calls), 3)
+
+    def test_too_big_area_split(self):
+        fake = use_nspd(FakeNspd(too_big_area_m2=30000))
+        result, loaded, _ = run_nspd(distance=100)
+        self.assertGreater(len(fake.calls), 4)  # по частям
+        cads = [f["cad_num"] for f in loaded.getFeatures()]
+        self.assertEqual(len(cads), len(set(cads)))  # участок на стыке частей — один раз
+        use_nspd(FakeNspd())
+        whole, _, _ = run_nspd(distance=100, name="нспд_целиком.gpkg")
+        self.assertEqual(result["COUNT"], whole["COUNT"])
+
+    def test_real_request_over_http(self):
+        """nspd.post по-настоящему: заголовки браузера, JSON-тело, код и тело ответа."""
+        import http.server
+        import threading
+        seen = {}
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                seen["headers"] = dict(self.headers)
+                seen["body"] = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                data = json.dumps({"features": [{"properties": {"interactionId": 1}}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        old = nspd.URL
+        nspd.URL = "http://127.0.0.1:{}/api/geoportal/v1/intersects".format(server.server_port)
+        try:
+            body = nspd.payload(QgsGeometry.fromWkt("POLYGON((37.7 44.7, 37.8 44.7, 37.8 44.8, 37.7 44.7))"))
+            status, data = nspd.post(body)
+        finally:
+            nspd.URL = old
+            server.shutdown()
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(data)["features"][0]["properties"]["interactionId"], 1)
+        self.assertEqual(seen["body"], body)
+        self.assertEqual(seen["headers"]["Origin"], "https://nspd.gov.ru")
+        self.assertIn("Chrome/140", seen["headers"]["User-Agent"])  # не «QGIS/…»
+        self.assertIn("sec-ch-ua", {k.lower() for k in seen["headers"]})
+
+    def test_closed_port_is_no_connection(self):
+        old = nspd.URL
+        nspd.URL = "http://127.0.0.1:9/"
+        try:
+            self.assertEqual(nspd.post({})[0], 0)
+        finally:
+            nspd.URL = old
+
+    def test_bundled_certificates(self):
+        certs = nspd._ca_certificates()
+        names = sorted(c.subjectInfo(c.SubjectInfo.CommonName)[0] for c in certs)
+        self.assertEqual(names, ["Russian Trusted Root CA", "Russian Trusted Sub CA"])
+
+    def test_no_connection_message(self):
+        use_nspd(lambda body, feedback=None: (0, b""))
+        with self.assertRaisesRegex(Exception, "доступен только из России"):
+            run_nspd()
+
+    def test_blocked_message(self):
+        use_nspd(lambda body, feedback=None: (597, b""))
+        with self.assertRaisesRegex(Exception, "Подождите минуту"):
+            run_nspd()
+
 
 
 # ------------------------------------------------------------ модуль в QGIS
@@ -695,7 +990,7 @@ class PluginTest(unittest.TestCase):
         self.assertIn("Word", dialog.docx_on.toolTip())
 
     def test_default_files_not_overwritten(self):
-        """Прежний реестр с тем же именем не затирается: новый — «(2)»."""
+        """Прежний реестр с тем же именем не затирается: новый — « 2», без скобок в имени."""
         project_dir = os.path.join(OUT, "Проект для повтора")
         os.makedirs(project_dir, exist_ok=True)
         QgsProject.instance().setFileName(os.path.join(project_dir, "п.qgz"))
@@ -710,9 +1005,9 @@ class PluginTest(unittest.TestCase):
         self.wait()
         with open(old) as f:
             self.assertEqual(f.read(), "прежний реестр")
-        new = old.replace(".xlsx", " (2).xlsx")
+        new = old.replace(".xlsx", " 2.xlsx")
         self.assertTrue(os.path.isfile(new))
-        self.assertIn("(2)", self.iface.bar.messages[-1][0])
+        self.assertIn("Реестр участков в СЗЗ 2.xlsx", self.iface.bar.messages[-1][0])
 
     def test_unwritable_file_message(self):
         dialog = self.open()
@@ -726,6 +1021,221 @@ class PluginTest(unittest.TestCase):
         self.assertIsNotNone(group)  # слои не потерялись
         texts = [t for t, level in self.iface.bar.messages if level == Qgis.MessageLevel.Warning]
         self.assertTrue(any("Не удалось сохранить" in t and "закройте" in t for t in texts), texts)
+
+
+    def test_nspd_button_loads_and_selects_layer(self):
+        use_nspd(FakeNspd())
+        project_dir = os.path.join(OUT, "Проект НСПД")
+        os.makedirs(project_dir, exist_ok=True)
+        QgsProject.instance().setFileName(os.path.join(project_dir, "п.qgz"))
+        dialog = self.open()
+        dialog.same.setChecked(True)
+        self.assertTrue(dialog.nspd_button.isEnabled())
+        expected = os.path.join(project_dir, "Карты СЗЗ", "Участки НСПД {}.gpkg".format(
+            __import__("datetime").date.today().isoformat()))
+        self.assertEqual(dialog.nspd_parameters()["OUTPUT"], expected)
+        try:
+            dialog.nspd_button.click()
+            self.wait()
+        finally:
+            nspd.TRANSPORT = nspd.post
+            nspd.SLEEP = time.sleep
+        self.assertTrue(os.path.isfile(expected))
+        layer = dialog.parcels.currentLayer()
+        self.assertEqual(layer.source().split("|")[0], expected)
+        self.assertEqual(dialog.cad_field.currentField(), "cad_num")
+        text, level = self.iface.bar.messages[-1]
+        self.assertEqual(level, Qgis.MessageLevel.Success)
+        self.assertIn("Загружено участков с НСПД", text)
+        # второй раз в тот же день — новый файл « 2», прежний не тронут
+        self.assertTrue(dialog.nspd_parameters()["OUTPUT"].endswith(" 2.gpkg"))
+
+    def test_nspd_real_network_in_background(self):
+        """Кнопка → фоновая задача → настоящий запрос по HTTP к подставному НСПД."""
+        import http.server
+        import threading
+        fake = FakeNspd()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                status, data = fake(body)
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        old = nspd.URL
+        nspd.URL = "http://127.0.0.1:{}/".format(server.server_port)
+        dialog = self.open()
+        dialog.same.setChecked(True)
+        try:
+            dialog.nspd_button.click()
+            self.wait()
+        finally:
+            nspd.URL = old
+            server.shutdown()
+        self.assertEqual(len(fake.calls), 1)
+        self.assertEqual(self.iface.bar.messages[-1][1], Qgis.MessageLevel.Success)
+        self.assertGreater(dialog.parcels.currentLayer().featureCount(), 0)
+
+    def test_nspd_error_shown(self):
+        use_nspd(lambda body, feedback=None: (0, b""))
+        dialog = self.open()
+        dialog.same.setChecked(True)
+        try:
+            dialog.nspd_button.click()
+            self.wait()
+        finally:
+            nspd.TRANSPORT = nspd.post
+        text, level = self.iface.bar.messages[-1]
+        self.assertEqual(level, Qgis.MessageLevel.Critical)
+        self.assertIn("доступен только из России", text)
+        self.assertTrue(dialog.nspd_button.isEnabled())  # можно повторить
+
+    def test_nspd_button_does_not_squeeze_layer_list(self):
+        dialog = self.open()
+        dialog.show()
+        app.processEvents()
+        self.assertGreaterEqual(dialog.parcels.width(), dialog.cad_field.width() - 2)
+
+    def test_no_parcels_suggests_nspd(self):
+        QgsProject.instance().removeMapLayer(self.parcels.id())
+        dialog = self.open()
+        self.assertIn("Загрузить с НСПД", dialog.error)
+
+    def test_tolerances_in_advanced_box(self):
+        dialog = self.open()
+        self.assertTrue(dialog.advanced.isCollapsed())  # по умолчанию свёрнуто
+        self.assertEqual(dialog.depth_spins["industry"].value(), 0.5)
+        dialog.depth_spins["industry"].setValue(0.3)
+        dialog.min_area.setValue(2)
+        params = dialog.parameters()
+        self.assertEqual((params["DEPTH_INDUSTRY"], params["MIN_OVERLAP"]), (0.3, 2))
+        dialog.close()
+        self.plugin.unload()
+        self.plugin.initGui()
+        self.plugin.run()
+        self.assertEqual(self.plugin.dialog.depth_spins["industry"].value(), 0.3)  # запомнено
+        self.plugin.dialog.defaults_button.click()
+        self.assertEqual(self.plugin.dialog.depth_spins["industry"].value(), 0.5)
+        self.assertEqual(self.plugin.dialog.min_area.value(), 1)
+
+    def test_result_layers_not_picked_as_boundary(self):
+        """Слои прошлого реестра («В границах СЗЗ», «За границей предприятия…») — не граница и не СЗЗ."""
+        QgsProject.instance().removeMapLayer(self.enterprise.id())
+        lines = layer("LineString", [(ring(0, 0, 100, 100), [])], name="участок — features")
+        QgsProject.instance().addMapLayer(lines)
+        dialog = self.open()
+        dialog.enterprise.setLayer(lines)
+        dialog.same.setChecked(True)
+        dialog._run()
+        self.wait()
+        dialog.close()
+        names = [l.name() for l in QgsProject.instance().mapLayers().values()]
+        self.assertIn("За границей предприятия до 100 м", names)
+        self.plugin.unload()
+        self.plugin.initGui()
+        self.plugin.run()
+        again = self.plugin.dialog
+        self.assertIs(again.enterprise.currentLayer(), lines)  # выбор прошлого расчёта
+        self.assertIs(again.parcels.currentLayer(), self.parcels)
+
+    def test_result_layers_never_default(self):
+        """Без запомненного выбора эвристика не берёт слои результата модуля."""
+        QgsProject.instance().removeMapLayer(self.enterprise.id())
+        fake_result = layer("Polygon", [(rect(0, 0, 10, 10), [])], name="За границей предприятия до 500 м")
+        fake_result.setCustomProperty("szz_parcels/result", True)
+        old_name = layer("Polygon", [(rect(0, 0, 10, 10), [])], name="В границах СЗЗ")
+        for lyr in (fake_result, old_name):
+            QgsProject.instance().addMapLayer(lyr)
+        dialog = self.open()
+        self.assertNotIn(dialog.enterprise.currentLayer(), (fake_result, old_name))
+        self.assertNotIn(dialog.szz.currentLayer(), (fake_result, old_name))
+
+    def test_map_pdf_and_layout(self):
+        from qgis.core import QgsLayoutItemMap
+        project_dir = os.path.join(OUT, "Проект с картой")
+        os.makedirs(project_dir, exist_ok=True)
+        QgsProject.instance().setFileName(os.path.join(project_dir, "п.qgz"))
+        dialog = self.open()
+        dialog.map_on.setChecked(True)
+        dialog.object_name.setText("ПС Тестовая")
+        for _ in range(2):  # второй раз — тот же макет заменяется, PDF — с номером
+            dialog._run()
+            self.wait()
+        manager = QgsProject.instance().layoutManager()
+        layouts = [l.name() for l in manager.layouts()]
+        self.assertEqual(layouts.count("Карта СЗЗ"), 1)
+        layout = manager.layoutByName("Карта СЗЗ")
+        maps = [i for i in layout.items() if isinstance(i, QgsLayoutItemMap)]
+        self.assertEqual(len(maps), 1)
+        zone = [l for l in QgsProject.instance().mapLayers().values() if l.name().startswith("Зона поиска")]
+        self.assertTrue(zone)
+        self.assertTrue(maps[0].extent().contains(zone[-1].extent()))
+        folder = os.path.join(project_dir, "Карты СЗЗ")
+        pdfs = sorted(f for f in os.listdir(folder) if f.endswith(".pdf"))
+        self.assertEqual(pdfs, ["Карта СЗЗ 2.pdf", "Карта СЗЗ.pdf"])
+        self.assertGreater(os.path.getsize(os.path.join(folder, "Карта СЗЗ.pdf")), 5000)
+        near = [l for l in QgsProject.instance().mapLayers().values() if l.name().startswith("За границей")][-1]
+        self.assertTrue(near.labelsEnabled())  # подписи — конец кадастрового номера
+        # прошлый расчёт в группе выключен, новый — включён
+        group = QgsProject.instance().layerTreeRoot().findGroup("Реестр участков в СЗЗ")
+        visible = [(n.layer().name(), n.isVisible()) for n in group.findLayers()]
+        self.assertEqual(sum(1 for _, v in visible if v), 3, visible)
+        # масштаб — круглый
+        self.assertIn(round(maps[0].scale()), (500, 1000, 2000, 2500, 5000, 10000, 25000))
+        # в легенде — «Граница предприятия», а не имя слоя
+        from qgis.core import QgsLayoutItemLegend
+        legend = [i for i in layout.items() if isinstance(i, QgsLayoutItemLegend)][0]
+        # подпись, которую рисует легенда: у слоя с одним символом — подпись символа
+        titles = []
+        for n in legend.model().rootGroup().children():
+            nodes = legend.model().layerLegendNodes(n)
+            titles.append(nodes[0].data(Qt.ItemDataRole.DisplayRole) if len(nodes) == 1 else
+                          n.customProperty("legend/title-label") or n.name())
+        self.assertIn("Граница предприятия", titles)
+        self.assertIn("Санитарно-защитная зона", titles)  # слой «СЗЗ из НСПД» подписан по смыслу
+        # зона поиска — над участками, иначе её пунктир под заливкой
+        self.assertTrue(group.children()[0].layer().name().startswith("Зона поиска"))
+        self.assertIn("Карта СЗЗ.pdf", " ".join(t for t, _ in self.iface.bar.messages))
+
+    def test_direction_controls(self):
+        dialog = self.open()
+        dialog.direction.setChecked(True)
+        dialog.direction_from.setCurrentIndex(1)
+        params = dialog.parameters()
+        self.assertEqual((params["DIRECTION"], params["DIRECTION_FROM"]), (True, 1))
+        dialog.direction.setChecked(False)
+        self.assertFalse(dialog.direction_from.isEnabled())
+        self.assertFalse(dialog.parameters()["DIRECTION"])
+        dialog.close()
+        self.plugin.unload()
+        self.plugin.initGui()
+        self.plugin.run()
+        self.assertFalse(self.plugin.dialog.direction.isChecked())  # запомнено
+        self.assertEqual(self.plugin.dialog.direction_from.currentIndex(), 1)
+        self.plugin.dialog.direction.setChecked(True)
+
+    def test_map_off(self):
+        dialog = self.open()
+        dialog.map_on.setChecked(False)
+        dialog._run()
+        self.wait()
+        self.assertIsNone(QgsProject.instance().layoutManager().layoutByName("Карта СЗЗ"))
+
+    def test_nspd_button_needs_boundary(self):
+        QgsProject.instance().removeMapLayer(self.szz.id())
+        dialog = self.open()
+        dialog.same.setChecked(False)
+        self.assertFalse(dialog.nspd_button.isEnabled())  # СЗЗ не выбрана
+        dialog.same.setChecked(True)
+        self.assertTrue(dialog.nspd_button.isEnabled())
 
     def test_unclosed_line_reported(self):
         lines = layer("LineString", [(ring(0, 0, 100, 100, closed=False), [])], name="линия")
@@ -751,12 +1261,13 @@ class PluginTest(unittest.TestCase):
         group = QgsProject.instance().layerTreeRoot().findGroup("Реестр участков в СЗЗ")
         self.assertIsNotNone(group)
         names = [node.layer().name() for node in group.findLayers()]
-        self.assertEqual(names, ["В границах СЗЗ", "За границей СЗЗ до 100 м"])
-        inside = group.findLayers()[0].layer()
+        self.assertEqual(names, ["Зона поиска до 100 м", "В границах СЗЗ", "За границей СЗЗ до 100 м"])
+        by_name = {node.layer().name(): node.layer() for node in group.findLayers()}
+        inside = by_name["В границах СЗЗ"]
         self.assertEqual(inside.featureCount(), 3)
         self.assertEqual(inside.attributeDisplayName(inside.fields().indexOf("szz_pct")),
                          "Доля участка в СЗЗ, %")
-        near = group.findLayers()[1].layer()
+        near = by_name["За границей СЗЗ до 100 м"]
         self.assertEqual(near.attributeDisplayName(near.fields().indexOf("dist_m")),
                          "Расстояние до СЗЗ, м")
         text, level = self.iface.bar.messages[-1]
@@ -793,7 +1304,7 @@ class PluginTest(unittest.TestCase):
         dialog._run()
         self.wait()
         self.assertEqual(sorted(os.listdir(folder)),
-                         ["Реестр участков в СЗЗ.docx", "Реестр участков в СЗЗ.xlsx"])
+                         ["Карта СЗЗ.pdf", "Реестр участков в СЗЗ.docx", "Реестр участков в СЗЗ.xlsx"])
         # путь, выбранный вручную, не подменяется при повторном открытии
         own = os.path.join(OUT, "свой.xlsx")
         dialog.xlsx.setFilePath(own)

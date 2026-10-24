@@ -13,8 +13,68 @@ from qgis.core import (
 # Доля площади участка внутри границы предприятия, с которой участок считается
 # участком самого предприятия и в реестр не попадает
 ENTERPRISE_SHARE = 50.0
-# Заход участка в СЗЗ меньше этой площади — не попадание, а расхождение границ
-MIN_OVERLAP_M2 = 0.01
+# Заход участка в СЗЗ меньше этой площади или уже допуска по категории земель — не попадание,
+# а расхождение границ (решения пользователя 2026-10-24: «порог 0,1 м или даже 1 м²», допуски —
+# по категориям земель, менять в дополнительных настройках)
+MIN_OVERLAP_M2 = 1.0
+MIN_DEPTH_M = 0.1
+# Допуск по глубине захода, м — средняя квадратическая погрешность границ участка по требованиям
+# Росреестра к точности (по категориям земель). Ключ — группа из depth_group().
+DEPTHS = {
+    "settlement": 0.1,  # земли населённых пунктов
+    "garden": 0.2,      # сельхозземли под ЛПХ, сады, огороды, дачи, ИЖС, гаражи
+    "industry": 0.5,    # земли промышленности, энергетики, транспорта, связи…
+    "agri": 2.5,        # прочие сельхозземли
+    "forest": 5.0,      # лесной и водный фонд, ООПТ, земли запаса
+    "other": 0.1,       # категория не установлена — строже всего, чтобы не потерять заход
+}
+DEPTH_NAMES = {
+    "settlement": "земли населённых пунктов",
+    "garden": "сельхозземли под ЛПХ, сады, огороды, дачи, ИЖС",
+    "industry": "земли промышленности",
+    "agri": "прочие сельхозземли",
+    "forest": "лесной и водный фонд, ООПТ, земли запаса",
+    "other": "категория не установлена",
+}
+
+
+RHUMBS = ("С", "СВ", "В", "ЮВ", "Ю", "ЮЗ", "З", "СЗ")
+
+
+def rhumb(azimuth):
+    """Румб (8 направлений) по азимуту в градусах от севера по часовой стрелке."""
+    return RHUMBS[int(((azimuth % 360) + 22.5) // 45) % 8]
+
+
+def direction(enterprise, parcel, from_boundary=False):
+    """Румб от предприятия к участку (геометрии в СК расчёта, север — вверх по сетке).
+    От центра — центроид предприятия → центроид участка; от границы — кратчайший отрезок от
+    границы предприятия до участка (касается или внутри — от центра)."""
+    if from_boundary:
+        line = enterprise.shortestLine(parcel)
+        points = line.asPolyline() if line and not line.isEmpty() else []
+        if len(points) == 2 and points[0].distance(points[1]) > 0.01:
+            return rhumb(points[0].azimuth(points[1]))
+    start = enterprise.centroid().asPoint()
+    end = parcel.centroid().asPoint()
+    if start.distance(end) < 0.01:
+        return None
+    return rhumb(start.azimuth(end))
+
+
+def depth_group(category, vri=None):
+    """Группа допуска по категории земель (и ВРИ — для сельхозземель)."""
+    c = (text(category) or "").lower().replace("ё", "е")
+    v = (text(vri) or "").lower()
+    if "населенн" in c:
+        return "settlement"
+    if "сельскохозяйствен" in c:
+        return "garden" if re.search(r"садов|огород|подсобн|лпх|дач|жилищ|гараж", v) else "agri"
+    if "промышленн" in c:
+        return "industry"
+    if any(w in c for w in ("особо охраняем", "лесного фонда", "водного фонда", "запаса")):
+        return "forest"
+    return "other"
 
 # Чем заполняются пустые ячейки таблиц
 NO_CATEGORY = "Категория не установлена"  # как в выписке ЕГРН
@@ -68,9 +128,15 @@ def cad_sort_key(cad):
     return (0, [(0, int(p), "") if p.isdigit() else (1, 0, p) for p in re.split(r"(\d+)", cad) if p])
 
 
+def true_metres(crs):
+    """Метры СК — настоящие: не градусы и не Меркатор (в EPSG:3857 «метр» на 56° с. ш. длиннее
+    настоящего в 1,8 раза: «500 м» поиска были бы 280 м, площадь захода — втрое больше)."""
+    return crs.isValid() and not crs.isGeographic() and "+proj=merc" not in crs.toProj()
+
+
 def working_crs(parcels_crs, zone_geometry_wgs84=None):
-    """СК расчёта в метрах: СК участков, если она в метрах, иначе UTM по месту СЗЗ."""
-    if parcels_crs.isValid() and not parcels_crs.isGeographic():
+    """СК расчёта в метрах: СК участков, если её метры настоящие, иначе UTM по месту СЗЗ."""
+    if true_metres(parcels_crs):
         return parcels_crs
     lon = 0.0
     lat = 1.0
@@ -129,12 +195,14 @@ class Classifier:
     INSIDE, NEAR, ENTERPRISE, FAR = "inside", "near", "enterprise", "far"
 
     def __init__(self, enterprise, zone, distance, enterprise_share=ENTERPRISE_SHARE,
-                 min_overlap=MIN_OVERLAP_M2):
+                 min_overlap=MIN_OVERLAP_M2, min_depth=MIN_DEPTH_M, depths=None):
         self.enterprise = enterprise
         self.zone = zone if zone is not None else enterprise
         self.distance = max(0.0, float(distance))
         self.enterprise_share = enterprise_share
         self.min_overlap = min_overlap
+        self.min_depth = min_depth  # без допуска по категории (контур границы, СЗЗ)
+        self.depths = dict(DEPTHS if depths is None else depths)
         self._zone_engine = QgsGeometry.createGeometryEngine(self.zone.constGet())
         self._zone_engine.prepareGeometry()
         self._ent_engine = QgsGeometry.createGeometryEngine(self.enterprise.constGet())
@@ -146,8 +214,14 @@ class Classifier:
             return QgsGeometry(self.zone)
         return self.zone.buffer(self.distance, 16)
 
-    def measure(self, geometry):
-        """[площадь, в границе предприятия, в СЗЗ, расстояние до СЗЗ] или None (пустая)."""
+    def depth_for(self, category=None, vri=None):
+        """Допуск по глубине захода для участка по его категории земель (и ВРИ)."""
+        return self.depths.get(depth_group(category, vri), self.min_depth)
+
+    def measure(self, geometry, depth=None):
+        """[площадь, в границе предприятия, в СЗЗ, расстояние до СЗЗ] или None (пустая).
+        depth — допуск по глубине захода, м (по умолчанию min_depth)."""
+        depth = self.min_depth if depth is None else depth
         geometry = _valid(geometry)
         if geometry is None:
             return None
@@ -158,7 +232,11 @@ class Classifier:
         if self._ent_engine.intersects(geometry.constGet()):
             ent = geometry.intersection(self.enterprise).area()
         if self._zone_engine.intersects(geometry.constGet()):
-            zone = geometry.intersection(self.zone).area()
+            overlap = geometry.intersection(self.zone)
+            zone = overlap.area()
+            # полоска уже min_depth — расхождение границ: при отрицательном буфере исчезает
+            if zone > 0 and depth > 0 and overlap.buffer(-depth / 2, 4).isEmpty():
+                zone = 0.0
         distance = 0.0 if zone > 0 else self._zone_engine.distance(geometry.constGet())
         return [area, ent, zone, distance]
 
@@ -175,7 +253,7 @@ class Classifier:
         area, ent, zone, distance = measures
         if 100.0 * ent / area >= self.enterprise_share:
             return self.ENTERPRISE, None
-        if zone > self.min_overlap:
+        if zone >= self.min_overlap and zone > 0:
             return self.INSIDE, min(100.0, 100.0 * zone / area)
         if distance <= self.distance:
             return self.NEAR, distance
@@ -207,7 +285,8 @@ def parcel_request(search_area, work_crs, parcels_crs, transform_context):
     return QgsFeatureRequest().setFilterRect(rect)
 
 
-def collect(features, cad_field, to_work, classifier, feedback=None, total=0):
+def collect(features, cad_field, to_work, classifier, feedback=None, total=0,
+            category_field=None, vri_field=None):
     """Участки по кадастровому номеру: {ключ: {"cad", "feature", "geoms", "fids", "m"}}.
 
     to_work — QgsCoordinateTransform в СК расчёта или None. Контуры с одним номером
@@ -229,7 +308,9 @@ def collect(features, cad_field, to_work, classifier, feedback=None, total=0):
         work = QgsGeometry(geometry)
         if to_work is not None:
             work.transform(to_work)
-        measures = classifier.measure(work)
+        depth = classifier.depth_for(feature[category_field] if category_field else None,
+                                     feature[vri_field] if vri_field else None)
+        measures = classifier.measure(work, depth)
         if measures is None:
             empty += 1
             continue
@@ -237,8 +318,10 @@ def collect(features, cad_field, to_work, classifier, feedback=None, total=0):
         key = cad or "#{}".format(feature.id())
         row = rows.get(key)
         if row is None:
-            row = rows[key] = {"cad": cad, "feature": feature, "geoms": [], "fids": [], "m": None}
+            row = rows[key] = {"cad": cad, "feature": feature, "geoms": [], "work": [], "fids": [],
+                               "m": None}
         row["geoms"].append(geometry)
+        row["work"].append(work)
         row["fids"].append(feature.id())
         row["m"] = classifier.add(row["m"], measures)
     return rows, empty

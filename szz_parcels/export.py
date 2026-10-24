@@ -202,6 +202,7 @@ def _table(table):
     twips = [int(TEXT_W * w / total) for w in widths]
     twips[-1] += TEXT_W - sum(twips)
     decimals = table.get("decimals", {})
+    centered = table.get("center", ())  # столбцы с короткими значениями (румб) — по центру
     grid = "".join('<w:gridCol w:w="{}"/>'.format(w) for w in twips)
     border = '<w:{} w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
     borders = "".join(border.format(side)
@@ -211,7 +212,7 @@ def _table(table):
         cells = []
         for i, value in enumerate(values):
             numeric = isinstance(value, (int, float)) and not isinstance(value, bool)
-            align = "center" if header or i == 0 or numeric else "left"
+            align = "center" if header or i == 0 or numeric or i in centered else "left"
             shade = '<w:shd w:val="clear" w:color="auto" w:fill="E7EEF7"/>' if header else ""
             cells.append(
                 '<w:tc><w:tcPr><w:tcW w:w="{}" w:type="dxa"/>{}</w:tcPr>'

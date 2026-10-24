@@ -3,16 +3,19 @@ import os
 from qgis.core import (
     Qgis,
     QgsApplication,
+    QgsCoordinateTransform,
     QgsProcessingAlgRunnerTask,
+    QgsProcessingFeatureSourceDefinition,
     QgsProcessingContext,
     QgsProcessingFeedback,
     QgsProject,
+    QgsVectorLayer,
 )
 from qgis.PyQt.QtCore import QUrl
 from qgis.PyQt.QtGui import QColor, QDesktopServices, QIcon
 from qgis.PyQt.QtWidgets import QPushButton
 
-from . import altan_toolbar
+from . import altan_toolbar, mapmaker
 
 try:  # Qt6 / QGIS 4: QAction живёт в QtGui
     from qgis.PyQt.QtGui import QAction
@@ -21,6 +24,7 @@ except ImportError:  # Qt5 / QGIS 3
 
 PLUGIN_DIR = os.path.dirname(__file__)
 ALGORITHM = "szzparcels:registry"
+NSPD_ALGORITHM = "szzparcels:nspd"
 TITLE = "Участки в СЗЗ"
 GROUP = "Реестр участков в СЗЗ"
 
@@ -98,31 +102,105 @@ class SzzParcelsPlugin:
         if self.dialog is None:
             from .dialog import SzzDialog
 
-            self.dialog = SzzDialog(self.iface, self.start)
+            self.dialog = SzzDialog(self.iface, self.start, self.load_nspd)
         self.dialog.show()
         self.dialog.raise_()
         self.dialog.activateWindow()
 
-    def start(self, params, dialog=None):
+    def start(self, params, dialog=None, algorithm_id=ALGORITHM, description=TITLE, done=None):
         if self._running is not None:
-            self.message("Реестр ещё считается — ход виден внизу окна QGIS.")
+            self.message("Расчёт ещё идёт — ход виден внизу окна QGIS.")
             return
-        algorithm = QgsApplication.processingRegistry().createAlgorithmById(ALGORITHM)
+        algorithm = QgsApplication.processingRegistry().createAlgorithmById(algorithm_id)
         context = QgsProcessingContext()
         context.setProject(QgsProject.instance())
         feedback = _Feedback()
-        task = QgsProcessingAlgRunnerTask(algorithm, params, context, feedback)
-        task.setDescription(TITLE)
+        # MAP_PDF — не параметр алгоритма: карту строит модуль после расчёта (нужны слои проекта)
+        run_params = {k: v for k, v in params.items() if k != "MAP_PDF"}
+        task = QgsProcessingAlgRunnerTask(algorithm, run_params, context, feedback)
+        task.setDescription(description)
         self._running = (task, context, feedback, params)
-        task.executed.connect(self.finished)
+        task.executed.connect(done or self.finished)
         if dialog is not None:
             dialog.run_button.setEnabled(False)
+            dialog.nspd_button.setEnabled(False)
         QgsApplication.taskManager().addTask(task)
 
-    def finished(self, ok, results):
+    def load_nspd(self, params, dialog=None):
+        self.start(params, dialog, NSPD_ALGORITHM, "Загрузка участков с НСПД", self.nspd_finished)
+
+    def _take_running(self):
         running, self._running = self._running, None
         if self.dialog is not None:
             self.dialog.run_button.setEnabled(self.dialog.error is None)
+            self.dialog.update_nspd_button()
+        return running
+
+    def _make_map(self, params, layers, zone, from_enterprise, distance, path):
+        """Макет «Карта СЗЗ» и PDF. True — PDF записан."""
+        project = QgsProject.instance()
+
+        def layer_of(value):
+            if isinstance(value, QgsProcessingFeatureSourceDefinition):
+                value = value.source.staticValue()
+            return project.mapLayer(value) if isinstance(value, str) else None
+
+        enterprise = layer_of(params.get("ENTERPRISE"))
+        szz = layer_of(params.get("SZZ"))
+        crs = project.crs() if project.crs().isValid() else zone.crs()
+        extent = QgsCoordinateTransform(zone.crs(), crs, project).transformBoundingBox(zone.extent())
+        extent.grow(0.05 * max(extent.width(), extent.height()))
+        title = "Схема расположения земельных участков в санитарно-защитной зоне"
+        if params.get("OBJECT"):
+            title += " " + params["OBJECT"]
+        subtitle = ("СЗЗ совпадает с границей предприятия; " if from_enterprise else "") + \
+            "участки в границах СЗЗ и за её границей на расстоянии до {:g} м".format(distance)
+        layout = mapmaker.build_layout(
+            project, title, subtitle, extent,
+            [(enterprise, "Граница предприятия"), (szz, "Санитарно-защитная зона")]
+            + [(layer, None) for layer in layers] + [(zone, None)], crs)
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+        except OSError:
+            return False
+        return mapmaker.export_pdf(layout, path)
+
+    def nspd_finished(self, ok, results):
+        running = self._take_running()
+        if running is None:
+            return
+        task, context, feedback, params = running
+        if not ok:
+            if feedback.isCanceled():
+                self.message("Загрузка с НСПД отменена.", Qgis.MessageLevel.Warning)
+            else:
+                text = feedback.errors[-1] if feedback.errors else "Не удалось загрузить участки с НСПД."
+                self.message(text, Qgis.MessageLevel.Critical, 0)
+            return
+        path = results.get("OUTPUT")
+        name = os.path.splitext(os.path.basename(path))[0]
+        layer = QgsVectorLayer(path, name, "ogr")
+        if not layer.isValid():
+            self.message("Участки загружены, но файл «{}» не открылся.".format(path),
+                         Qgis.MessageLevel.Critical, 0)
+            return
+        project = QgsProject.instance()
+        project.addMapLayer(layer, False)
+        project.layerTreeRoot().insertLayer(0, layer)
+        count = results.get("COUNT", layer.featureCount())
+        if self.dialog is not None:
+            self.dialog.parcels.setLayer(layer)
+        if not count:
+            self.message("НСПД не нашёл в зоне поиска участков с границами. Увеличьте расстояние "
+                         "поиска или проверьте границу предприятия.", Qgis.MessageLevel.Warning, 0)
+            return
+        self.message("Загружено участков с НСПД: {} — слой «{}», файл в папке «{}». Он уже выбран "
+                     "слоем участков. Сведения кадастровой карты справочные и не заменяют выписку "
+                     "из ЕГРН.".format(count, name, os.path.basename(os.path.dirname(path))),
+                     Qgis.MessageLevel.Success, 15)
+
+    def finished(self, ok, results):
+        running = self._take_running()
         if running is None:
             return
         task, context, feedback, params = running
@@ -145,20 +223,33 @@ class SzzParcelsPlugin:
         project = QgsProject.instance()
         root = project.layerTreeRoot()
         group = root.findGroup(GROUP) or root.insertGroup(0, GROUP)
+        # прошлые расчёты в группе выключаются (не удаляются — могут быть сохранены в файлы),
+        # иначе на карте видны вперемешку старые и новые участки
+        for node in group.findLayers():
+            node.setItemVisibilityChecked(False)
         layers = []
         for key in ("INSIDE", "NEAR"):
             layer = context.takeResultLayer(results[key])
             if layer is None:
                 continue
             layer.setName(names[key])
+            layer.setCustomProperty("szz_parcels/result", True)  # окно не подставит его границей
             apply_aliases(layer, INSIDE_ALIASES if key == "INSIDE" else near_aliases(from_enterprise))
             symbol = layer.renderer().symbol() if layer.renderer() else None
             if symbol is not None:  # те же цвета, что у подсветки в окне
                 symbol.setColor(QColor(214, 39, 40, 110) if key == "INSIDE"
                                 else QColor(255, 140, 0, 110))
+            mapmaker.label_cadastral_end(layer)
             project.addMapLayer(layer, False)
             group.addLayer(layer)
             layers.append(layer)
+        zone = context.takeResultLayer(results["SEARCH"]) if results.get("SEARCH") else None
+        if zone is not None:
+            zone.setName("Зона поиска до {:g} м".format(distance))
+            zone.setCustomProperty("szz_parcels/result", True)
+            mapmaker.style_search_zone(zone)
+            project.addMapLayer(zone, False)
+            group.insertLayer(0, zone)  # сверху: пунктир не прячется под заливкой участков
 
         text = "В границах СЗЗ: {}, за границей до {:g} м: {}.".format(
             results.get("INSIDE_COUNT", 0), distance, results.get("NEAR_COUNT", 0))
@@ -167,9 +258,20 @@ class SzzParcelsPlugin:
             text += " Файлы: {} — в папке «{}».".format(
                 ", ".join("«{}»".format(os.path.basename(f)) for f in files),
                 os.path.basename(os.path.dirname(files[0])))
+        map_pdf = params.get("MAP_PDF")
+        if map_pdf and zone is not None:
+            if self._make_map(params, layers, zone, from_enterprise, distance, map_pdf):
+                files.append(map_pdf)
+                text += " Карта: «{}».".format(os.path.basename(map_pdf))
+            else:
+                feedback.warnings.append(
+                    "Карту «{}» записать не удалось: файл, похоже, открыт или папка недоступна. "
+                    "Макет «Карта СЗЗ» в проекте создан — выведите его через «Проект → Макеты»."
+                    .format(os.path.basename(map_pdf)))
         widget = self.iface.messageBar().createMessage(TITLE, text)
         for path in files:
-            button = QPushButton("Открыть {}".format("Excel" if path.endswith(".xlsx") else "Word"))
+            button = QPushButton("Открыть {}".format(
+                {".xlsx": "Excel", ".docx": "Word"}.get(os.path.splitext(path)[1], "карту")))
             button.clicked.connect(lambda _=False, p=path: QDesktopServices.openUrl(
                 QUrl.fromLocalFile(p)))
             widget.layout().addWidget(button)

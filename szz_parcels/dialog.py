@@ -1,5 +1,6 @@
 """Окно «Реестр участков в СЗЗ»: выбор слоёв, вопрос о зонах, подсветка на карте."""
 
+import datetime
 import os
 
 from qgis.core import (
@@ -17,12 +18,19 @@ from qgis.core import (
     QgsSettings,
     QgsVectorLayer,
 )
-from qgis.gui import QgsFieldComboBox, QgsFileWidget, QgsMapLayerComboBox, QgsRubberBand
+from qgis.gui import (
+    QgsCollapsibleGroupBox,
+    QgsFieldComboBox,
+    QgsFileWidget,
+    QgsMapLayerComboBox,
+    QgsRubberBand,
+)
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -34,6 +42,7 @@ from qgis.PyQt.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
     QRadioButton,
     QScrollArea,
     QVBoxLayout,
@@ -68,10 +77,11 @@ def _layer_filter(*names):
 
 
 class SzzDialog(QDialog):
-    def __init__(self, iface, run_callback, parent=None):
+    def __init__(self, iface, run_callback, nspd_callback=None, parent=None):
         super().__init__(parent or iface.mainWindow())
         self.iface = iface
         self.run_callback = run_callback
+        self.nspd_callback = nspd_callback
         self.setWindowTitle("Реестр участков в СЗЗ")
         self._connected = []  # (слой, сигнал) — отключаются при смене слоя и закрытии
         self._bands = []
@@ -106,6 +116,7 @@ class SzzDialog(QDialog):
         form = QFormLayout(box)
         self.enterprise = QgsMapLayerComboBox()
         self.enterprise.setFilters(_layer_filter("PolygonLayer", "LineLayer"))
+        self.enterprise.setAllowEmptyLayer(True)  # не угадана — пусто, а не первый слой списка
         form.addRow("Граница предприятия:", self.enterprise)
         self.enterprise_selected = QCheckBox("только выделенные объекты")
         form.addRow("", self.enterprise_selected)
@@ -138,7 +149,19 @@ class SzzDialog(QDialog):
         form = QFormLayout(box)
         self.parcels = QgsMapLayerComboBox()
         self.parcels.setFilters(_layer_filter("PolygonLayer"))
+        # без слоя с кадастровым номером — пусто, а не первый попавшийся полигон (СЗЗ, граница)
+        self.parcels.setAllowEmptyLayer(True)
+        self.nspd_button = QPushButton("Загрузить с НСПД")
+        self.nspd_button.setToolTip(
+            "Загрузить земельные участки с публичной кадастровой карты НСПД в зоне поиска: "
+            "СЗЗ (или граница предприятия) плюс расстояние поиска. Нужен интернет из России.")
+        self.nspd_button.clicked.connect(self._load_nspd)
         form.addRow("Слой участков:", self.parcels)
+        # своей строкой: рядом со списком кнопка сжимала его, и имени слоя не было видно
+        row = QHBoxLayout()
+        row.addWidget(self.nspd_button)
+        row.addStretch(1)
+        form.addRow("", row)
         self.cad_field = QgsFieldComboBox()
         self.category_field = QgsFieldComboBox()
         self.vri_field = QgsFieldComboBox()
@@ -158,7 +181,40 @@ class SzzDialog(QDialog):
         self.share = QCheckBox("указывать долю участка в СЗЗ, %")
         self.share.setChecked(_settings_value("share", True, bool))
         form.addRow("", self.share)
+        self.direction = QCheckBox("указывать направление от предприятия (румб)")
+        self.direction.setChecked(_settings_value("direction", True, bool))
+        self.direction_from = QComboBox()
+        self.direction_from.addItems(["от центра предприятия", "от ближайшей точки границы"])
+        self.direction_from.setCurrentIndex(_settings_value("direction_from", 0, int))
+        self.direction_from.setEnabled(self.direction.isChecked())
+        self.direction.toggled.connect(self.direction_from.setEnabled)
+        self.direction.toggled.connect(self._remember)
+        self.direction_from.currentIndexChanged.connect(self._remember)
+        form.addRow("", self.direction)
+        form.addRow("Направление считать:", self.direction_from)
         layout.addWidget(box)
+
+        # допуски расхождения границ: свёрнуто, значения запоминаются
+        self.advanced = QgsCollapsibleGroupBox("Дополнительно: допуски расхождения границ")
+        self.advanced.setCollapsed(True)
+        self.advanced.setSaveCollapsedState(False)
+        form = QFormLayout(self.advanced)
+        hint = QLabel("Заход в СЗЗ меньше этой площади или полосой уже допуска для категории "
+                      "земель участка — расхождение границ, а не попадание в СЗЗ.")
+        hint.setWordWrap(True)
+        form.addRow(hint)
+        self.min_area = self._spin(" м²", 0, 1000000, 1, "min_area", core.MIN_OVERLAP_M2)
+        form.addRow("Заход меньше:", self.min_area)
+        self.depth_spins = {}
+        for key, name in core.DEPTH_NAMES.items():
+            spin = self._spin(" м", 0, 1000, 2, "depth_" + key, core.DEPTHS[key])
+            self.depth_spins[key] = spin
+            form.addRow(name[:1].upper() + name[1:] + ":", spin)
+        self.defaults_button = QPushButton("По умолчанию")
+        self.defaults_button.setToolTip("Вернуть допуски по требованиям Росреестра к точности границ")
+        self.defaults_button.clicked.connect(self._default_tolerances)
+        form.addRow("", self.defaults_button)
+        layout.addWidget(self.advanced)
 
         box = QGroupBox("Результат: два слоя в проекте и файлы")
         form = QFormLayout(box)
@@ -167,6 +223,12 @@ class SzzDialog(QDialog):
         form.addRow("Предприятие (для Word):", self.object_name)
         self.xlsx_on, self.xlsx = self._file_row(form, "Excel:", "Excel (*.xlsx)", "xlsx")
         self.docx_on, self.docx = self._file_row(form, "Word:", "Word (*.docx)", "docx")
+        self.map_on = QCheckBox("карта PDF (A3) и макет «Карта СЗЗ»")
+        self.map_on.setToolTip("Карта с участками, СЗЗ и зоной поиска; подложка — как включена "
+                               "в проекте. Макет можно поправить и вывести заново.")
+        self.map_on.setChecked(_settings_value("map", True, bool))
+        self.map_on.toggled.connect(self._remember)
+        form.addRow("Карта:", self.map_on)
         layout.addWidget(box)
 
         self.status = QLabel()
@@ -213,29 +275,51 @@ class SzzDialog(QDialog):
         return on, widget
 
     def _pick_defaults(self):
-        """Слои по названиям и полям: участки — с кадастровым номером, СЗЗ — «СЗЗ…»."""
-        layers = [l for l in QgsProject.instance().mapLayers().values()
-                  if isinstance(l, QgsVectorLayer)]
-        for layer in layers:
-            if layer.geometryType() == Qgis.GeometryType.Polygon and \
-                    core.find_field(layer.fields().names(), core.CAD_FIELDS):
-                self.parcels.setLayer(layer)
-                break
-        self.szz.setLayer(None)
-        for layer in layers:
-            name = layer.name().lower()
-            if layer.geometryType() == Qgis.GeometryType.Polygon and \
-                    ("сзз" in name or "санитарно" in name):
-                self.szz.setLayer(layer)
-                break
-        for layer in layers:
-            if layer.geometryType() in (Qgis.GeometryType.Polygon, Qgis.GeometryType.Line) and \
-                    ("границ" in layer.name().lower() or "предприят" in layer.name().lower()) \
-                    and layer is not self.parcels.currentLayer():
-                self.enterprise.setLayer(layer)
-                break
+        """Слои прошлого расчёта в этом проекте, иначе — по названиям и полям: участки — с
+        кадастровым номером, СЗЗ — «СЗЗ…», граница — «границ…»/«предприят…». Слои результата
+        модуля («В границах СЗЗ», «За границей…») не подставляются никуда: у них есть и «границ»
+        в названии, и поле cad_num."""
+        project = QgsProject.instance()
+        saved = {key: project.layerStore().mapLayer(project.readEntry("szz_parcels", key, "")[0])
+                 for key in ("enterprise", "parcels", "szz")}
+        layers = [l for l in project.mapLayers().values()
+                  if isinstance(l, QgsVectorLayer) and not _is_result(l)]
+
+        def first(test):
+            return next((l for l in layers if test(l)), None)
+
+        polygon = Qgis.GeometryType.Polygon
+        self.parcels.setLayer(saved["parcels"] or first(
+            lambda l: l.geometryType() == polygon and core.find_field(l.fields().names(), core.CAD_FIELDS)))
+        self.szz.setLayer(saved["szz"] or first(
+            lambda l: l.geometryType() == polygon and any(w in l.name().lower() for w in ("сзз", "санитарно"))))
+        enterprise = saved["enterprise"] or first(
+            lambda l: l.geometryType() in (polygon, Qgis.GeometryType.Line)
+            and any(w in l.name().lower() for w in ("границ", "предприят"))
+            and l is not self.parcels.currentLayer())
+        self.enterprise.setLayer(enterprise)
         self.same.setChecked(_settings_value("same", False, bool))
         self._parcels_changed()
+
+    def _spin(self, suffix, low, high, decimals, key, default):
+        spin = QDoubleSpinBox()
+        spin.setRange(low, high)
+        spin.setDecimals(decimals)
+        spin.setSuffix(suffix)
+        spin.setValue(_settings_value(key, default, float))
+        spin.setProperty("key", key)
+        spin.valueChanged.connect(self._remember)
+        spin.valueChanged.connect(self.schedule)
+        return spin
+
+    def _default_tolerances(self):
+        self.min_area.setValue(core.MIN_OVERLAP_M2)
+        for key, spin in self.depth_spins.items():
+            spin.setValue(core.DEPTHS[key])
+
+    def tolerances(self):
+        """(порог площади, допуски по группам категорий) — как в окне."""
+        return self.min_area.value(), {k: s.value() for k, s in self.depth_spins.items()}
 
     def _remember(self, *args):
         settings = QgsSettings()
@@ -244,6 +328,14 @@ class SzzDialog(QDialog):
         settings.setValue(SETTINGS + "same", self.same.isChecked())
         settings.setValue(SETTINGS + "xlsx", self.xlsx_on.isChecked())
         settings.setValue(SETTINGS + "docx", self.docx_on.isChecked())
+        for key in ("direction", "direction_from", "map_on"):
+            widget = getattr(self, key, None)
+            if widget is not None:
+                value = widget.currentIndex() if key == "direction_from" else widget.isChecked()
+                settings.setValue(SETTINGS + ("map" if key == "map_on" else key), value)
+        for spin in [getattr(self, "min_area", None)] + list(getattr(self, "depth_spins", {}).values()):
+            if spin is not None:
+                settings.setValue(SETTINGS + spin.property("key"), spin.value())
 
     # ------------------------------------------------------------ слои
 
@@ -272,6 +364,7 @@ class SzzDialog(QDialog):
         self.szz_label.setEnabled(not self.same.isChecked())
         self._fill_zones()
         self._update_selection_labels()
+        self.update_nspd_button()
         self._suggest_files()
         self.schedule()
 
@@ -361,9 +454,43 @@ class SzzDialog(QDialog):
             widget.setProperty("default", path)
             widget.setFilePath(path)
 
+    def update_nspd_button(self):
+        """Загрузка с НСПД нужна граница и СЗЗ (или «совпадает с границей»), слой участков — нет."""
+        ready = self.enterprise.currentLayer() is not None and (
+            self.same.isChecked() or self.szz.currentLayer() is not None)
+        self.nspd_button.setEnabled(ready and self.nspd_callback is not None)
+
+    def nspd_parameters(self):
+        """Параметры szzparcels:nspd: та же зона, что у реестра, файл — в «Карты СЗЗ»."""
+        params = self.parameters_zone()
+        params["DISTANCE"] = self.distance.value()
+        folder = os.path.join(QgsProject.instance().homePath() or os.path.expanduser("~"),
+                              OUTPUT_FOLDER)
+        stem = os.path.join(folder, "Участки НСПД {}".format(datetime.date.today().isoformat()))
+        number = 1
+        while os.path.exists(_numbered(stem + ".gpkg", number)):
+            number += 1
+        params["OUTPUT"] = _numbered(stem + ".gpkg", number)
+        return params
+
+    def _load_nspd(self):
+        os.makedirs(os.path.dirname(self.nspd_parameters()["OUTPUT"]), exist_ok=True)
+        self.nspd_callback(self.nspd_parameters(), self)
+
+    def _map_path(self):
+        """«Карта СЗЗ.pdf» — рядом с Excel (или в «Карты СЗЗ»), прежняя не затирается."""
+        base = self.xlsx.filePath() or self.docx.filePath()
+        folder = os.path.dirname(base) if base else os.path.join(
+            QgsProject.instance().homePath() or os.path.expanduser("~"), OUTPUT_FOLDER)
+        path = os.path.join(folder, "Карта СЗЗ.pdf")
+        number = 1
+        while os.path.exists(_numbered(path, number)):
+            number += 1
+        return _numbered(path, number)
+
     def _output_files(self):
         """Пути Excel и Word. Файл по умолчанию, который уже есть (прежний реестр), не
-        затирается: новый получает номер «(2)», «(3)»… общий для обоих файлов.
+        затирается: новый получает номер « 2», « 3»… общий для обоих файлов.
         Путь, выбранный вручную, — как есть: при выборе QGIS уже спросил о замене."""
         chosen = {}
         for key, on, widget in (("XLSX", self.xlsx_on, self.xlsx), ("DOCX", self.docx_on, self.docx)):
@@ -419,7 +546,7 @@ class SzzDialog(QDialog):
         if self.enterprise.currentLayer() is None:
             return "Выберите слой границы предприятия."
         if self.parcels.currentLayer() is None:
-            return "Выберите слой земельных участков."
+            return "Выберите слой земельных участков или загрузите их кнопкой «Загрузить с НСПД»."
         if not self.cad_field.currentField():
             return "Выберите поле кадастрового номера."
         if not self.same.isChecked():
@@ -430,25 +557,11 @@ class SzzDialog(QDialog):
                 return "Отметьте в списке хотя бы одну зону."
         return None
 
-    def parameters(self):
-        """Параметры алгоритма szzparcels:registry по выбору в окне."""
+    def parameters_zone(self):
+        """Граница предприятия и выбранные зоны СЗЗ — общие для реестра и загрузки с НСПД."""
         enterprise = self.enterprise.currentLayer()
-        params = {
-            "PARCELS": self.parcels.currentLayer().id(),
-            "CAD_FIELD": self.cad_field.currentField(),
-            "CATEGORY_FIELD": self.category_field.currentField() or None,
-            "VRI_DOC_FIELD": self.vri_field.currentField() or None,
-            "ENTERPRISE": QgsProcessingFeatureSourceDefinition(
-                enterprise.id(), self.enterprise_selected.isChecked()),
-            "DISTANCE": self.distance.value(),
-            "SHARE": self.share.isChecked(),
-            "OBJECT": self.object_name.text().strip(),
-            "INSIDE": "TEMPORARY_OUTPUT",
-            "NEAR": "TEMPORARY_OUTPUT",
-            "XLSX": None,
-            "DOCX": None,
-        }
-        params.update(self._output_files())
+        params = {"ENTERPRISE": QgsProcessingFeatureSourceDefinition(
+            enterprise.id(), self.enterprise_selected.isChecked())}
         if not self.same.isChecked():
             szz = self.szz.currentLayer()
             mode, ids = self.zone_choice()
@@ -456,6 +569,33 @@ class SzzDialog(QDialog):
             if mode == LIST:
                 source.filterExpression = "$id IN ({})".format(", ".join(str(i) for i in ids))
             params["SZZ"] = source
+        return params
+
+    def parameters(self):
+        """Параметры алгоритма szzparcels:registry по выбору в окне."""
+        params = {
+            "PARCELS": self.parcels.currentLayer().id(),
+            "CAD_FIELD": self.cad_field.currentField(),
+            "CATEGORY_FIELD": self.category_field.currentField() or None,
+            "VRI_DOC_FIELD": self.vri_field.currentField() or None,
+            "DISTANCE": self.distance.value(),
+            "SHARE": self.share.isChecked(),
+            "MIN_OVERLAP": self.min_area.value(),
+            "DIRECTION": self.direction.isChecked(),
+            "DIRECTION_FROM": self.direction_from.currentIndex(),
+            "SEARCH": "TEMPORARY_OUTPUT",
+            "MAP_PDF": self._map_path() if self.map_on.isChecked() else None,
+            "OBJECT": self.object_name.text().strip(),
+            "INSIDE": "TEMPORARY_OUTPUT",
+            "NEAR": "TEMPORARY_OUTPUT",
+            "XLSX": None,
+            "DOCX": None,
+        }
+        params.update(self._output_files())
+        params.update(self.parameters_zone())
+        from .processing.registry_algorithm import SzzRegistryAlgorithm
+        for key, spin in self.depth_spins.items():
+            params[SzzRegistryAlgorithm.DEPTH_PARAMS[key]] = spin.value()
         return params
 
     # ------------------------------------------------------------ подсветка
@@ -543,7 +683,9 @@ class SzzDialog(QDialog):
             if zone is None:
                 raise ValueError("В выбранных зонах СЗЗ нет контуров — отметьте другую зону "
                                  "или выберите «все зоны слоя».")
-        classifier = core.Classifier(enterprise, zone, self.distance.value())
+        min_area, depths = self.tolerances()
+        classifier = core.Classifier(enterprise, zone, self.distance.value(),
+                                     min_overlap=min_area, depths=depths)
         search = classifier.search_area()
         request = core.parcel_request(search, work_crs, parcels.crs(),
                                       QgsProject.instance().transformContext())
@@ -551,7 +693,9 @@ class SzzDialog(QDialog):
         if parcels.crs() != work_crs:
             to_work = QgsCoordinateTransform(parcels.crs(), work_crs, QgsProject.instance())
         rows, _ = core.collect(parcels.getFeatures(request), self.cad_field.currentField(),
-                               to_work, classifier)
+                               to_work, classifier, None, 0,
+                               self.category_field.currentField() or None,
+                               self.vri_field.currentField() or None)
         inside, near, own = core.split(rows, classifier)
         self.counts = (len(inside), len(near), len(own))
 
@@ -578,6 +722,11 @@ class SzzDialog(QDialog):
         if self.error:
             return
         self._remember()
+        # выбор слоёв — в проект: при следующем открытии окна те же слои, а не угаданные
+        project = QgsProject.instance()
+        for key, combo in (("enterprise", self.enterprise), ("parcels", self.parcels), ("szz", self.szz)):
+            layer = combo.currentLayer()
+            project.writeEntry("szz_parcels", key, layer.id() if layer else "")
         self.run_callback(self.parameters(), self)
 
     def showEvent(self, event):
@@ -598,8 +747,19 @@ class SzzDialog(QDialog):
 
 
 def _numbered(path, number):
-    """«Реестр.xlsx» → «Реестр (2).xlsx»; номер 1 — путь как есть."""
+    """«Реестр.xlsx» → «Реестр 2.xlsx»; номер 1 — путь как есть. Без скобок: они ломают
+    ссылки на файл (правило пользователя)."""
     if number <= 1:
         return path
     stem, ext = os.path.splitext(path)
-    return "{} ({}){}".format(stem, number, ext)
+    return "{} {}{}".format(stem, number, ext)
+
+
+RESULT_NAMES = ("в границах сзз", "за границей сзз", "за границей предприятия")
+
+
+def _is_result(layer):
+    """Слой результата этого модуля (метка или название прошлого реестра)."""
+    if layer.customProperty("szz_parcels/result", False):
+        return True
+    return layer.name().lower().startswith(RESULT_NAMES)

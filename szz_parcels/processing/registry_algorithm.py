@@ -17,6 +17,7 @@ from qgis.core import (
     QgsProcessingLayerPostProcessorInterface,
     QgsProcessingParameterBoolean,
     QgsProcessingParameterDistance,
+    QgsProcessingParameterEnum,
     QgsProcessingParameterFeatureSink,
     QgsProcessingParameterFeatureSource,
     QgsProcessingParameterField,
@@ -29,7 +30,9 @@ from qgis.PyQt.QtCore import QCoreApplication, QMetaType
 from .. import core, export
 
 INSIDE_ALIASES = {"num": "№ п/п", "cad_num": "Кадастровый номер", "category": "Категория земель",
-                  "vri_doc": "ВРИ по документу", "szz_pct": "Доля участка в СЗЗ, %"}
+                  "vri_doc": "ВРИ по документу", "szz_pct": "Доля участка в СЗЗ, %",
+                  "dir": "Направление от предприятия"}
+DIRECTION_FROM = ("от центра предприятия", "от ближайшей точки границы предприятия")
 
 
 def near_aliases(from_enterprise):
@@ -75,9 +78,15 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
     SZZ = "SZZ"
     DISTANCE = "DISTANCE"
     SHARE = "SHARE"
+    DIRECTION = "DIRECTION"
+    DIRECTION_FROM = "DIRECTION_FROM"
+    SEARCH = "SEARCH"
     OBJECT = "OBJECT"
     ENT_SHARE = "ENT_SHARE"
     MIN_OVERLAP = "MIN_OVERLAP"
+    DEPTH_PARAMS = {"settlement": "DEPTH_SETTLEMENT", "garden": "DEPTH_GARDEN",
+                    "industry": "DEPTH_INDUSTRY", "agri": "DEPTH_AGRI", "forest": "DEPTH_FOREST",
+                    "other": "DEPTH_OTHER"}
     INSIDE = "INSIDE"
     NEAR = "NEAR"
     XLSX = "XLSX"
@@ -142,13 +151,20 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             100.0, self.PARCELS, False, 0.0))
         self.addParameter(QgsProcessingParameterBoolean(
             self.SHARE, self.tr("Указывать долю участка в СЗЗ, %"), True))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.DIRECTION, self.tr("Указывать направление от предприятия (румб)"), True))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.DIRECTION_FROM, self.tr("Направление считать"),
+            options=[self.tr(o) for o in DIRECTION_FROM], defaultValue=0))
         self.addParameter(QgsProcessingParameterString(
             self.OBJECT, self.tr("Название предприятия для заголовка в Word"), optional=True))
         for name, text, default, maximum in (
                 (self.ENT_SHARE, "Участок предприятия: внутри его границы не меньше, %",
                  core.ENTERPRISE_SHARE, 100.0),
                 (self.MIN_OVERLAP, "Не считать попаданием в СЗЗ заход меньше, м²",
-                 core.MIN_OVERLAP_M2, 1e9)):
+                 core.MIN_OVERLAP_M2, 1e9)) + tuple(
+                (self.DEPTH_PARAMS[key], "Допуск расхождения границ, м: " + core.DEPTH_NAMES[key],
+                 core.DEPTHS[key], 1000.0) for key in core.DEPTHS):
             param = QgsProcessingParameterNumber(
                 name, self.tr(text), Qgis.ProcessingNumberParameterType.Double, default,
                 False, 0.0, maximum)
@@ -159,6 +175,9 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             Qgis.ProcessingSourceType.VectorPolygon))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.NEAR, self.tr("Участки за границей СЗЗ"), Qgis.ProcessingSourceType.VectorPolygon))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.SEARCH, self.tr("Зона поиска"), Qgis.ProcessingSourceType.VectorPolygon,
+            optional=True, createByDefault=False))
         self.addParameter(QgsProcessingParameterFileDestination(
             self.XLSX, self.tr("Таблицы в Excel"), self.tr("Excel (*.xlsx)"),
             optional=True, createByDefault=False))
@@ -234,6 +253,8 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         from_enterprise = szz_src is None
         distance = self.parameterAsDouble(parameters, self.DISTANCE, context)
         share = self.parameterAsBoolean(parameters, self.SHARE, context)
+        with_direction = self.parameterAsBoolean(parameters, self.DIRECTION, context)
+        from_boundary = self.parameterAsEnum(parameters, self.DIRECTION_FROM, context) == 1
         title_object = self.parameterAsString(parameters, self.OBJECT, context).strip()
 
         cad_field = self._field(parameters, self.CAD_FIELD, context, parcels, core.CAD_FIELDS)
@@ -283,7 +304,9 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         classifier = core.Classifier(
             enterprise, zone, distance,
             self.parameterAsDouble(parameters, self.ENT_SHARE, context),
-            self.parameterAsDouble(parameters, self.MIN_OVERLAP, context))
+            self.parameterAsDouble(parameters, self.MIN_OVERLAP, context),
+            depths={key: self.parameterAsDouble(parameters, name, context)
+                    for key, name in self.DEPTH_PARAMS.items()})
 
         # 2. Участки в зоне поиска
         request = core.parcel_request(classifier.search_area(), work_crs, parcels.sourceCrs(),
@@ -295,7 +318,7 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         # ход — от участков в зоне поиска, а не от всего слоя (выгрузка бывает на весь район)
         candidates = list(parcels.getFeatures(request))
         rows, empty = core.collect(candidates, cad_field, to_work, classifier,
-                                   feedback, len(candidates))
+                                   feedback, len(candidates), category_field, vri_field)
         if rows is None:
             return {}
         if empty:
@@ -307,6 +330,25 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         feedback.pushInfo(self.tr("В границах СЗЗ: {}, за границей в пределах {:g} м: {}")
                           .format(len(inside), distance, len(near)))
 
+        # зона поиска — слоем: для карты и легенды
+        search_fields = QgsFields()
+        search_fields.append(QgsField("dist_m", QMetaType.Type.Double))
+        search_sink, search_id = self.parameterAsSink(
+            parameters, self.SEARCH, context, search_fields, Qgis.WkbType.MultiPolygon,
+            parcels.sourceCrs())
+        if search_sink is not None:
+            area = classifier.search_area()
+            if work_crs != parcels.sourceCrs():
+                area.transform(QgsCoordinateTransform(work_crs, parcels.sourceCrs(),
+                                                      context.transformContext()))
+            area.convertToMultiType()
+            zone_feature = QgsFeature(search_fields)
+            zone_feature.setGeometry(area)
+            zone_feature.setAttributes([distance])
+            search_sink.addFeature(zone_feature, QgsFeatureSink.Flag.FastInsert)
+            if hasattr(search_sink, "finalize"):
+                search_sink.finalize()
+
         # 3. Слои
         def attributes(row):
             # пустые ячейки заполняются по просьбе пользователя (2026-09-29)
@@ -315,6 +357,10 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             vri = core.text(feature[vri_field]) if vri_field else None
             return [row["cad"] or core.NO_VALUE, core.category_text(category),
                     vri or core.NO_VALUE]
+
+        def rhumb(row):
+            parcel = row["work"][0] if len(row["work"]) == 1 else QgsGeometry.unaryUnion(row["work"])
+            return core.direction(enterprise, parcel, from_boundary) or core.NO_VALUE
 
         def fields(last):
             result = QgsFields()
@@ -326,6 +372,8 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
                 field.setLength(20)
                 field.setPrecision(1)
                 result.append(field)
+            if with_direction:
+                result.append(QgsField("dir", QMetaType.Type.QString))
             return result
 
         inside_fields = fields("szz_pct" if share else None)
@@ -345,6 +393,8 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
                 values = [n] + attributes(row)
                 if value_name:
                     values.append(round(value, 1))
+                if with_direction:
+                    values.append(rhumb(row))
                 table_rows.append(values)
                 feature = QgsFeature(layer_fields)
                 geometry = row["geoms"][0] if len(row["geoms"]) == 1 else \
@@ -371,17 +421,21 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
                           else self.tr("санитарно-защитной зоны"), distance)]
         export_tables = []
         for i, (headers, table_rows) in enumerate(tables):
-            last = len(headers) - 1
             has_value = (i == 1) or share
-            widths = [7, 21, 24, 32] + ([17] if has_value else [])
+            value_col = 4 if has_value else None
+            # направление — 18: «предприятия» в шапке не рвётся по слогам; место — у ВРИ
+            vri_w = 28 if with_direction else 32
+            widths = [7, 21, 24, vri_w] + ([17] if has_value else []) + ([18] if with_direction else [])
+            excel = [7, 22, 30, 50] + ([16] if has_value else []) + ([14] if with_direction else [])
             export_tables.append({
                 "title": titles[i],
                 "sheet": ["В границах СЗЗ", "За границей СЗЗ"][i],
                 "headers": headers,
                 "rows": table_rows,
                 "widths": widths,
-                "excel_widths": [7, 22, 30, 50] + ([16] if has_value else []),
-                "decimals": {last: 1} if has_value else {},
+                "excel_widths": excel,
+                "decimals": {value_col: 1} if has_value else {},
+                "center": (len(headers) - 1,) if with_direction else (),
                 "empty": self.tr("Участков в границах СЗЗ нет.") if i == 0 else
                 self.tr("Участков в пределах {:g} м нет.").format(distance),
             })
@@ -397,9 +451,14 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             elif zone_names:
                 notes.append(self.tr("Санитарно-защитная зона: {}.").format("; ".join(zone_names)))
             notes.append(self.tr(
-                "Участки, заходящие в СЗЗ частично, отнесены к таблице 1. Участки самого "
-                "предприятия в таблицы не включены. Расстояние — кратчайшее от участка до "
-                "{}, м.").format(zone_word))
+                "Участки, заходящие в СЗЗ частично, отнесены к таблице 1. Заход меньше {} м² или "
+                "полосой уже допустимой погрешности границ ({}) считается расхождением границ, "
+                "а не попаданием в СЗЗ. Участки самого предприятия в таблицы не включены. "
+                "Расстояние — кратчайшее от участка до {}, м.").format(
+                    _ru(classifier.min_overlap),
+                    "; ".join("{} — {} м".format(core.DEPTH_NAMES[k], _ru(v))
+                              for k, v in classifier.depths.items()),
+                    zone_word))
             notes.append(self.tr("Источник сведений: слой «{}», дата составления: {}.").format(
                 parcels.sourceName(), datetime.date.today().strftime("%d.%m.%Y")))
             title = self.tr("Реестр земельных участков в санитарно-защитной зоне")
@@ -408,6 +467,13 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             if self._save(feedback, docx, "Word", export.write_docx, title, notes, export_tables):
                 results[self.DOCX] = docx
         feedback.setProgress(100)
+        if search_sink is not None:
+            results[self.SEARCH] = search_id
         results.update({"INSIDE_COUNT": len(inside), "NEAR_COUNT": len(near),
                         "OWN_COUNT": len(own), "FROM_ENTERPRISE": from_enterprise})
         return results
+
+
+def _ru(number):
+    """Число для текста: «0,1», «1» — без лишних нулей, с запятой."""
+    return "{:g}".format(number).replace(".", ",")
