@@ -12,10 +12,12 @@ from qgis.core import (
     QgsField,
     QgsFields,
     QgsGeometry,
+    QgsPointXY,
     QgsProcessingAlgorithm,
     QgsProcessingException,
     QgsProcessingLayerPostProcessorInterface,
     QgsProcessingParameterBoolean,
+    QgsProcessingParameterCrs,
     QgsProcessingParameterDistance,
     QgsProcessingParameterEnum,
     QgsProcessingParameterFeatureSink,
@@ -27,7 +29,12 @@ from qgis.core import (
 )
 from qgis.PyQt.QtCore import QCoreApplication, QMetaType
 
-from .. import core, export
+from .. import core, export, msk
+
+# msk.py и msk.json — копии из модуля project_utm_crs, правятся там; представляемся своим именем
+msk.USER_AGENT = "QGIS plugin szz_parcels (https://github.com/Slider007/qgis-szz-parcels)"
+# Тесты подменяют запрос к сервису адресов (Nominatim): функция (lon, lat) → (ответ, ошибка)
+GEOCODE = None
 
 INSIDE_ALIASES = {"num": "№ п/п", "cad_num": "Кадастровый номер", "category": "Категория земель",
                   "vri_doc": "ВРИ по документу", "szz_pct": "Доля участка в СЗЗ, %",
@@ -81,6 +88,9 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
     DIRECTION = "DIRECTION"
     DIRECTION_FROM = "DIRECTION_FROM"
     SEARCH = "SEARCH"
+    COORDS = "COORDS"
+    COORD_CRS = "COORD_CRS"
+    POINTS = "POINTS"
     OBJECT = "OBJECT"
     ENT_SHARE = "ENT_SHARE"
     MIN_OVERLAP = "MIN_OVERLAP"
@@ -178,6 +188,14 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.SEARCH, self.tr("Зона поиска"), Qgis.ProcessingSourceType.VectorPolygon,
             optional=True, createByDefault=False))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.COORDS, self.tr("Каталог координат границы СЗЗ"), True))
+        self.addParameter(QgsProcessingParameterCrs(
+            self.COORD_CRS, self.tr("Система координат каталога (пусто — МСК субъекта по месту)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.POINTS, self.tr("Точки границы СЗЗ"), Qgis.ProcessingSourceType.VectorPoint,
+            optional=True, createByDefault=False))
         self.addParameter(QgsProcessingParameterFileDestination(
             self.XLSX, self.tr("Таблицы в Excel"), self.tr("Excel (*.xlsx)"),
             optional=True, createByDefault=False))
@@ -238,6 +256,55 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
                 "закройте его и нажмите «Сформировать» ещё раз. Слои в проекте уже созданы.")
                 .format(os.path.basename(path), program))
             return False
+
+    def _coord_crs(self, parameters, context, zone, work_crs, sources, feedback):
+        """(СК каталога, её название) или (None, None) с предупреждением.
+
+        Задана вручную — она; слой границы/СЗЗ/участков уже в МСК из набора — его МСК;
+        иначе МСК субъекта по месту (один запрос к сервису адресов по центру СЗЗ)."""
+        fixed = self.parameterAsCrs(parameters, self.COORD_CRS, context)
+        if fixed.isValid():
+            if fixed.isGeographic():
+                feedback.pushWarning(self.tr("Каталог координат СЗЗ не составлен: система «{}» в "
+                                             "градусах — выберите МСК в «Дополнительно».")
+                                     .format(fixed.description()))
+                return None, None
+            item = msk.item_for_crs(fixed)
+            return fixed, msk.short_name(item) if item else fixed.description()
+        ambiguous = []
+        for source in sources:
+            if source is None:
+                continue
+            crs = source.sourceCrs()
+            same = _msk_items(crs)
+            named = [i for i in same if i["name"] in crs.description()]
+            if len(same) == 1 or len(named) == 1:
+                item = (named or same)[0]
+                return msk.crs_for(item, register=False), msk.short_name(item)
+            if same and not ambiguous:
+                ambiguous = same  # у МСК-01 и МСК-23 зона 1 параметры одинаковые
+        centre = QgsGeometry(zone.centroid())
+        centre.transform(QgsCoordinateTransform(work_crs, QgsCoordinateReferenceSystem("EPSG:4326"),
+                                                context.transformContext()))
+        point = centre.asPoint()
+        geocode = GEOCODE or msk.reverse_geocode
+        answer, error = geocode(point.x(), point.y())
+        code = msk.region_from_reverse(answer)[0] if not error else None
+        zones = msk.zones_for(code, point.x()) if code is not None else []
+        if ambiguous:
+            # слой уже в одной из этих МСК: субъект по месту только выбирает название
+            chosen = [i for i in ambiguous if i["code"] == code]
+            item = chosen[0] if chosen else ambiguous[0]
+            name = msk.short_name(item) if chosen else " / ".join(msk.short_name(i) for i in ambiguous)
+            return msk.crs_for(item, register=False), name
+        if not zones:
+            reason = error or self.tr("субъект РФ по месту не найден в наборе МСК")
+            feedback.pushWarning(self.tr(
+                "МСК для координат СЗЗ не определена: {} Выберите систему координат каталога в "
+                "окне («Дополнительно») и нажмите «Сформировать» ещё раз.").format(
+                    reason.rstrip(".") + "."))
+            return None, None
+        return msk.crs_for(zones[0], register=False), msk.short_name(zones[0])
 
     def processAlgorithm(self, parameters, context, feedback):
         # неверные контуры (самопересечения в выгрузках ЕГРН) исправляются в core через
@@ -349,6 +416,43 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             if hasattr(search_sink, "finalize"):
                 search_sink.finalize()
 
+        # каталог координат границы СЗЗ (по выбору пользователя 2026-10-25: МСК по месту,
+        # с северо-западной точки по часовой; таблица 3, лист Excel, слой точек, номера на карте)
+        coord_rows, coord_name, coord_area, results_points = [], None, None, None
+        if self.parameterAsBoolean(parameters, self.COORDS, context):
+            coord_crs, coord_name = self._coord_crs(
+                parameters, context, classifier.zone, work_crs,
+                (szz_src, enterprise_src, parcels), feedback)
+            if coord_crs is not None:
+                outline = QgsGeometry(classifier.zone)
+                outline.transform(QgsCoordinateTransform(work_crs, coord_crs,
+                                                         context.transformContext()))
+                coord_rows = core.szz_points(outline)
+                coord_area = outline.area()
+                point_fields = QgsFields()
+                point_fields.append(QgsField("num", QMetaType.Type.Int))
+                for name in ("x", "y"):
+                    field = QgsField(name, QMetaType.Type.Double)
+                    field.setLength(20)
+                    field.setPrecision(2)
+                    point_fields.append(field)
+                point_fields.append(QgsField("contour", QMetaType.Type.Int))
+                points_sink, points_id = self.parameterAsSink(
+                    parameters, self.POINTS, context, point_fields, Qgis.WkbType.Point, coord_crs)
+                if points_sink is not None:
+                    written = set()  # замыкающая строка каталога — та же точка, в слой не идёт
+                    for number, x, y, contour in coord_rows:
+                        if number in written:
+                            continue
+                        written.add(number)
+                        feature = QgsFeature(point_fields)
+                        feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(y, x)))
+                        feature.setAttributes([number, x, y, contour])
+                        points_sink.addFeature(feature, QgsFeatureSink.Flag.FastInsert)
+                    if hasattr(points_sink, "finalize"):
+                        points_sink.finalize()
+                    results_points = points_id
+
         # 3. Слои
         def attributes(row):
             # пустые ячейки заполняются по просьбе пользователя (2026-09-29)
@@ -440,6 +544,19 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
                 "empty": self.tr("Участков в границах СЗЗ нет.") if i == 0 else
                 self.tr("Участков в пределах {:g} м нет.").format(distance),
             })
+        if coord_rows:
+            export_tables.append({
+                "title": self.tr("Таблица 3. Каталог координат характерных точек границы "
+                                 "санитарно-защитной зоны ({})").format(coord_name),
+                "sheet": "Координаты СЗЗ",
+                "headers": [self.tr("№ точки"), self.tr("X, м"), self.tr("Y, м")],
+                "rows": [[n, x, y] for n, x, y, _ in coord_rows],
+                "widths": [20, 40, 40],
+                "excel_widths": [10, 16, 16],
+                "decimals": {1: 2, 2: 2},
+                "after": self.tr("Площадь санитарно-защитной зоны — {} м² ({} га).").format(
+                    _ru(round(coord_area)), _ru(round(coord_area / 10000, 4))),
+            })
         xlsx = self.parameterAsFileOutput(parameters, self.XLSX, context)
         docx = self.parameterAsFileOutput(parameters, self.DOCX, context)
         if xlsx and self._save(feedback, xlsx, "Excel", export.write_xlsx, export_tables):
@@ -470,6 +587,10 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         feedback.setProgress(100)
         if search_sink is not None:
             results[self.SEARCH] = search_id
+        if results_points is not None:
+            results[self.POINTS] = results_points
+        if coord_rows:
+            results["COORD_CRS_NAME"] = coord_name
         results.update({"INSIDE_COUNT": len(inside), "NEAR_COUNT": len(near),
                         "OWN_COUNT": len(own), "FROM_ENTERPRISE": from_enterprise})
         return results
@@ -478,3 +599,40 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
 def _ru(number):
     """Число для текста: «0,1», «1» — без лишних нулей, с запятой."""
     return "{:g}".format(number).replace(".", ",")
+
+
+def _proj_params(proj):
+    """Параметры строки PROJ: {ключ: значение или кортеж чисел}."""
+    params = {}
+    for token in (proj or "").split():
+        if not token.startswith("+") or token == "+type=crs":
+            continue
+        key, _, value = token[1:].partition("=")
+        try:
+            params[key] = tuple(float(v) for v in value.split(",")) if value else ()
+        except ValueError:
+            params[key] = value
+    return params
+
+
+def _same_params(a, b):
+    """Параметры совпадают с точностью до хвостов дробей: 3.40 после пересохранения СК пишет
+    towgs84 «-0.219999999995» вместо «-0.22» — строки уже не равны, а СК та же."""
+    if a.keys() != b.keys():
+        return False
+    for key, value in a.items():
+        other = b[key]
+        if isinstance(value, tuple) and isinstance(other, tuple):
+            if len(value) != len(other) or any(abs(x - y) > 1e-6 for x, y in zip(value, other)):
+                return False
+        elif value != other:
+            return False
+    return True
+
+
+def _msk_items(crs):
+    """Записи набора МСК с теми же параметрами, что у СК (бывает несколько: МСК-01 = МСК-23 зона 1)."""
+    params = _proj_params(crs.toProj())
+    if not params:
+        return []
+    return [i for i in msk.items() if _same_params(_proj_params(i["proj"]), params)]

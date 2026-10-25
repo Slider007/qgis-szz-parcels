@@ -243,6 +243,8 @@ def write_docx(path, title, notes, tables):
             body.append(_table(table))
         else:
             body.append(_para(table.get("empty") or "Участков нет.", size=12))
+        if table.get("after"):
+            body.append(_para(table["after"], size=12, after=120))
     body.append(
         '<w:sectPr><w:pgSz w:w="{}" w:h="{}"/><w:pgMar w:top="{}" w:right="{}" w:bottom="{}" '
         'w:left="{}" w:header="709" w:footer="709" w:gutter="0"/></w:sectPr>'.format(

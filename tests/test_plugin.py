@@ -74,7 +74,7 @@ Processing.initialize()
 with warnings.catch_warnings():
     warnings.simplefilter("error", DeprecationWarning)
     import szz_parcels  # noqa: E402,F401
-    from szz_parcels import core, export, nspd  # noqa: E402
+    from szz_parcels import core, export, msk, nspd  # noqa: E402
     from szz_parcels import plugin as plugin_module  # noqa: E402,F401
     from szz_parcels.processing import registry_algorithm  # noqa: E402,F401
     from szz_parcels.processing.provider import SzzParcelsProvider  # noqa: E402
@@ -188,6 +188,21 @@ class Feedback(QgsProcessingFeedback):
         self.infos.append(text)
 
 
+def fake_geocode(code=23, fail=False):
+    """Подставной сервис адресов: субъект с кодом code или «нет связи»."""
+    calls = []
+
+    def geocode(lon, lat):
+        calls.append((lon, lat))
+        if fail:
+            return None, "Нет связи с сервисом адресов OpenStreetMap."
+        iso = {v: k for k, v in msk.ISO_TO_CODE.items()}[code]
+        return {"address": {"country_code": "ru", "ISO3166-2-lvl4": "RU-" + iso,
+                            "state": "Краснодарский край"}}, None
+    geocode.calls = calls
+    return geocode
+
+
 def run(parcels=None, enterprise=None, szz=None, distance=100.0, **extra):
     params = {
         "PARCELS": parcels or parcels_layer(),
@@ -200,6 +215,8 @@ def run(parcels=None, enterprise=None, szz=None, distance=100.0, **extra):
         params["SZZ"] = szz or szz_layer()
     params.update(extra)
     feedback = Feedback()
+    if registry_algorithm.GEOCODE is None:
+        registry_algorithm.GEOCODE = fake_geocode()  # тесты в сеть не ходят
     result = processing.run(ALG, params, feedback=feedback)
     return result, feedback
 
@@ -436,6 +453,122 @@ class RegistryTest(unittest.TestCase):
         # СЗЗ −50..150 плюс 15 м: ≈ 230² с закруглёнными углами
         self.assertAlmostEqual(next(zone.getFeatures()).geometry().area(), 230 * 230, delta=230 * 230 * 0.01)
 
+
+    def test_szz_points_order(self):
+        """С северо-западной вершины по часовой, последняя = первой; дырка — своим контуром."""
+        square = QgsGeometry.fromWkt("POLYGON((0 0, 100 0, 100 100, 0 100, 0 0))")  # против часовой
+        rows = core.szz_points(square)
+        self.assertEqual([(n, x, y) for n, x, y, _ in rows],
+                         [(1, 100, 0), (2, 100, 100), (3, 0, 100), (4, 0, 0), (1, 100, 0)])
+        holed = QgsGeometry.fromWkt("POLYGON((0 0, 100 0, 100 100, 0 100, 0 0),"
+                                    "(40 40, 40 60, 60 60, 60 40, 40 40))")
+        rows = core.szz_points(holed)
+        self.assertEqual([r[0] for r in rows], [1, 2, 3, 4, 1, 5, 6, 7, 8, 5])
+        self.assertEqual({r[3] for r in rows}, {1, 2})
+        # X — на север, Y — на восток (как в ЕГРН); дырка — против часовой
+        self.assertEqual([(x, y) for _, x, y, c in rows if c == 2][:2], [(60, 40), (40, 40)])
+
+    def test_coordinates_msk_by_location(self):
+        geocode = fake_geocode(23)
+        registry_algorithm.GEOCODE = geocode
+        docx = os.path.join(OUT, "коорд.docx")
+        xlsx = os.path.join(OUT, "коорд.xlsx")
+        try:
+            result, _ = run(DOCX=docx, XLSX=xlsx, POINTS="memory:")
+        finally:
+            registry_algorithm.GEOCODE = None
+        self.assertEqual(len(geocode.calls), 1)  # один запрос — по центру СЗЗ
+        points = QgsProcessingContextless.layer(result["POINTS"])
+        self.assertEqual(points.featureCount(), 4)  # 4 угла СЗЗ; замыкающая строка — только в таблице
+        self.assertIn("МСК-23", result["COORD_CRS_NAME"])
+        with zipfile.ZipFile(docx) as z:
+            xml = z.read("word/document.xml").decode("utf-8")
+        self.assertIn("Таблица 3. Каталог координат", xml)
+        self.assertIn("МСК-23 зона 1", xml)
+        self.assertIn("Площадь санитарно-защитной зоны", xml)
+        sheet = QgsVectorLayer(xlsx + "|layername=Координаты СЗЗ", "x", "ogr")
+        self.assertTrue(sheet.isValid())
+        self.assertEqual(sheet.featureCount(), 5)
+        self.assertEqual(sheet.fields().names()[:3], ["№ точки", "X, м", "Y, м"])
+
+    def test_coordinates_crs_of_layer_used_without_internet(self):
+        """Граница уже в МСК из набора с единственными параметрами — СК берётся у неё, в сеть не ходим."""
+        def norm(i):
+            return " ".join(p for p in i["proj"].split() if p != "+type=crs")
+        counts = {}
+        for i in msk.items():
+            counts[norm(i)] = counts.get(norm(i), 0) + 1
+        item = next(i for i in msk.items() if i["name"].startswith("МСК-33") and counts[norm(i)] == 1)
+        crs = QgsCoordinateReferenceSystem.fromProj(item["proj"])
+        tr = QgsCoordinateTransform(QgsCoordinateReferenceSystem(CRS), crs, QgsProject.instance())
+        g = rect(0, 0, 100, 100)
+        g.transform(tr)
+        ent = layer("Polygon", [(g, [])], crs=crs.toWkt(), name="Граница в МСК")
+        geocode = fake_geocode(fail=True)
+        registry_algorithm.GEOCODE = geocode
+        try:
+            result, feedback = run(enterprise=ent, szz=False, POINTS="memory:")
+        finally:
+            registry_algorithm.GEOCODE = None
+        self.assertEqual(geocode.calls, [])
+        self.assertEqual(QgsProcessingContextless.layer(result["POINTS"]).featureCount(), 4)
+        self.assertEqual(result["COORD_CRS_NAME"], msk.short_name(item))
+
+    def test_msk_found_despite_float_tail(self):
+        """3.40 пишет towgs84 с хвостом (-0.219999999995): МСК всё равно узнаётся."""
+        item = next(i for i in msk.items() if i["name"].startswith("МСК-23 зона 1"))
+        noisy = item["proj"].replace("-0.22", "-0.219999999995")
+        self.assertNotEqual(noisy, item["proj"])
+        crs = QgsCoordinateReferenceSystem.fromProj(noisy)
+        self.assertIn(item["name"], [i["name"] for i in registry_algorithm._msk_items(crs)])
+
+    def test_coordinates_same_params_two_msk(self):
+        """У МСК-01 и МСК-23 зона 1 одни параметры: название — по субъекту на месте."""
+        item = next(i for i in msk.items() if i["name"].startswith("МСК-23 зона 1"))
+        crs = QgsCoordinateReferenceSystem.fromProj(item["proj"])
+        tr = QgsCoordinateTransform(QgsCoordinateReferenceSystem(CRS), crs, QgsProject.instance())
+        g = rect(0, 0, 100, 100)
+        g.transform(tr)
+        ent = layer("Polygon", [(g, [])], crs=crs.toWkt(), name="Граница в МСК")
+        # если МСК уже зарегистрирована под названием (тесты окна, «СК проекта»), QGIS
+        # подставляет её название — тогда и без сети ответ однозначный
+        offline = "МСК-23 зона 1" if "МСК-23" in ent.crs().description() else \
+            "МСК-01 зона 1 / МСК-23 зона 1"
+        for geocode, expected in ((fake_geocode(23), "МСК-23 зона 1"),
+                                  (fake_geocode(fail=True), offline)):
+            registry_algorithm.GEOCODE = geocode
+            try:
+                result, _ = run(enterprise=ent, szz=False, POINTS="memory:")
+            finally:
+                registry_algorithm.GEOCODE = None
+            self.assertEqual(result["COORD_CRS_NAME"], expected)
+
+    def test_coordinates_without_internet(self):
+        registry_algorithm.GEOCODE = fake_geocode(fail=True)
+        docx = os.path.join(OUT, "без_сети.docx")
+        try:
+            result, feedback = run(DOCX=docx, POINTS="memory:")
+        finally:
+            registry_algorithm.GEOCODE = None
+        self.assertEqual(result["INSIDE_COUNT"], 3)  # реестр всё равно есть
+        self.assertNotIn("POINTS", result)
+        text = " ".join(feedback.warnings)
+        self.assertIn("МСК для координат СЗЗ не определена", text)
+        self.assertIn("Дополнительно", text)  # что сделать
+        with zipfile.ZipFile(docx) as z:
+            self.assertNotIn("Таблица 3", z.read("word/document.xml").decode("utf-8"))
+
+    def test_coordinates_fixed_crs(self):
+        result, _ = run(POINTS="memory:", COORD_CRS=QgsCoordinateReferenceSystem("EPSG:32637"))
+        points = QgsProcessingContextless.layer(result["POINTS"])
+        first = next(points.getFeatures())
+        # СЗЗ −50..150: северо-западная вершина (−50; 150) → X = Y0+150, Y = X0−50
+        self.assertEqual((first["num"], first["x"], first["y"]), (1, Y0 + 150, X0 - 50))
+
+    def test_coordinates_off(self):
+        result, _ = run(COORDS=False, POINTS="memory:")
+        self.assertNotIn("POINTS", result)
+
     def test_szz_is_enterprise_boundary(self):
         result, _ = run(szz=False)
         inside = QgsProcessingContextless.layer(result["INSIDE"])
@@ -534,7 +667,7 @@ class RegistryTest(unittest.TestCase):
         # Excel читается OGR: два листа, заголовки и числа
         book = QgsVectorLayer(xlsx, "x", "ogr")
         sheets = book.dataProvider().subLayers()
-        self.assertEqual(len(sheets), 2)
+        self.assertEqual(len(sheets), 3)  # участки в СЗЗ, за границей, координаты СЗЗ
         first = QgsVectorLayer(xlsx + "|layername=В границах СЗЗ", "x", "ogr")
         self.assertTrue(first.isValid())
         self.assertEqual(first.fields().names(), [
@@ -556,11 +689,11 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual((size.get("{%s}w" % ns["w"]), size.get("{%s}h" % ns["w"])),
                          ("11906", "16838"))
         tables = root.findall(".//w:tbl", ns)
-        self.assertEqual([len(t.findall("w:tr", ns)) for t in tables], [4, 5])
+        self.assertEqual([len(t.findall("w:tr", ns)) for t in tables], [4, 5, 6])
         self.assertIn("ПС 220 кВ Тестовая", xml)
         self.assertIn("СЗЗ ПС", xml)
         self.assertIn("50,0", xml)
-        self.assertEqual(xml.count("<w:tblHeader/>"), 2)
+        self.assertEqual(xml.count("<w:tblHeader/>"), 3)
         self.assertIn("Заход меньше 1 м²", xml)
         self.assertIn("населённых пунктов — 0,1 м", xml)
         self.assertIn("промышленности — 0,5 м", xml)
@@ -573,7 +706,7 @@ class RegistryTest(unittest.TestCase):
         with zipfile.ZipFile(docx) as z:
             xml = z.read("word/document.xml").decode("utf-8")
         self.assertIn("Участков в границах СЗЗ нет.", xml)
-        self.assertNotIn("<w:tbl>", xml)
+        self.assertEqual(xml.count("<w:tbl>"), 1)  # только каталог координат СЗЗ
 
     def test_missing_fields(self):
         bare = layer("Polygon", [(rect(110, 0, 140, 30), ["x"])], "&field=kn_other:string")
@@ -830,6 +963,7 @@ class PluginTest(unittest.TestCase):
         self.registry = QgsApplication.processingRegistry()
         self.registry.removeProvider(PROVIDER)
         self.iface = Iface()
+        registry_algorithm.GEOCODE = fake_geocode(23)  # окно запускает алгоритм — без сети
         self.plugin = szz_parcels.classFactory(self.iface)
         self.plugin.initProcessing()  # так делает QGIS до initGui() при hasProcessingProvider=yes
         self.plugin.initGui()
@@ -844,6 +978,7 @@ class PluginTest(unittest.TestCase):
 
     def tearDown(self):
         global PROVIDER
+        registry_algorithm.GEOCODE = None
         self.plugin.unload()
         # ссылку держим: иначе Python удалит провайдер вместе с алгоритмами
         PROVIDER = SzzParcelsProvider()
@@ -858,6 +993,7 @@ class PluginTest(unittest.TestCase):
         dialog.docx_on.setChecked(False)
         dialog.same.setChecked(False)
         dialog.distance.setValue(100)  # окно помнит расстояние с прошлого раза
+        dialog.coord_crs.setCrs(QgsCoordinateReferenceSystem())  # и СК каталога — тоже
         dialog.update_preview()
         return dialog
 
@@ -1193,9 +1329,25 @@ class PluginTest(unittest.TestCase):
         # прошлый расчёт в группе выключен, новый — включён
         group = QgsProject.instance().layerTreeRoot().findGroup("Реестр участков в СЗЗ")
         visible = [(n.layer().name(), n.isVisible()) for n in group.findLayers()]
-        self.assertEqual(sum(1 for _, v in visible if v), 3, visible)
+        self.assertEqual(sum(1 for _, v in visible if v), 4, visible)  # зона, точки, 2 таблицы
         # масштаб — круглый
         self.assertIn(round(maps[0].scale()), (500, 1000, 2000, 2500, 5000, 10000, 25000))
+        # рамка ГОСТ и штамп: название, объект, масштаб; заготовки шаблона не печатаются
+        from qgis.core import QgsLayoutItemLabel
+        labels = {i.id(): i.text() for i in layout.items() if isinstance(i, QgsLayoutItemLabel)}
+        self.assertIn("РАМКА ЛИСТА", [i.id() for i in layout.items() if hasattr(i, "id")])
+        self.assertIn("Схема расположения", labels["3-наименование здания"])
+        self.assertEqual(labels["2-наименование комплекса"], "ПС Тестовая")
+        self.assertEqual(labels["4-наимнование изображений"],
+                         "Масштаб 1:{:,}".format(round(maps[0].scale())).replace(",", " "))
+        self.assertEqual(labels["27-ЗАКАЗЧИК"], "")
+        self.assertEqual(labels["7-номер листа"], "1")
+        self.assertFalse(maps[0].grids().size())
+        from qgis.core import QgsLayoutExporter
+        image = QgsLayoutExporter.ImageExportSettings()
+        image.generateWorldFile = False
+        image.exportMetadata = False
+        QgsLayoutExporter(layout).exportToImage(os.path.join(OUT, "карта.png"), image)
         # в легенде — «Граница предприятия», а не имя слоя
         from qgis.core import QgsLayoutItemLegend
         legend = [i for i in layout.items() if isinstance(i, QgsLayoutItemLegend)][0]
@@ -1227,6 +1379,27 @@ class PluginTest(unittest.TestCase):
         self.assertFalse(self.plugin.dialog.direction.isChecked())  # запомнено
         self.assertEqual(self.plugin.dialog.direction_from.currentIndex(), 1)
         self.plugin.dialog.direction.setChecked(True)
+
+
+    def test_coordinates_in_dialog_and_map(self):
+        dialog = self.open()
+        self.assertTrue(dialog.coords.isChecked())
+        params = dialog.parameters()
+        self.assertTrue(params["COORDS"])
+        self.assertEqual(params["POINTS"], "TEMPORARY_OUTPUT")
+        dialog.coord_crs.setCrs(QgsCoordinateReferenceSystem("EPSG:32637"))
+        self.assertEqual(dialog.parameters()["COORD_CRS"].authid(), "EPSG:32637")
+        dialog.map_on.setChecked(True)
+        dialog._run()
+        self.wait()
+        points = [l for l in QgsProject.instance().mapLayers().values()
+                  if l.name().startswith("Точки границы СЗЗ")]
+        self.assertEqual(len(points), 1)
+        self.assertTrue(points[0].labelsEnabled())
+        from qgis.core import QgsLayoutItemLegend
+        layout = QgsProject.instance().layoutManager().layoutByName("Карта СЗЗ")
+        legend = [i for i in layout.items() if isinstance(i, QgsLayoutItemLegend)][0]
+        self.assertIn(points[0].id(), [n.layerId() for n in legend.model().rootGroup().children()])
 
     def test_map_off(self):
         dialog = self.open()
@@ -1267,10 +1440,13 @@ class PluginTest(unittest.TestCase):
         group = QgsProject.instance().layerTreeRoot().findGroup("Реестр участков в СЗЗ")
         self.assertIsNotNone(group)
         names = [node.layer().name() for node in group.findLayers()]
-        self.assertEqual(names, ["Зона поиска до 100 м", "В границах СЗЗ", "За границей СЗЗ до 100 м"])
+        self.assertEqual(names, ["Зона поиска до 100 м", "Точки границы СЗЗ (МСК-23 зона 1)",
+                                 "В границах СЗЗ", "За границей СЗЗ до 100 м"])
         by_name = {node.layer().name(): node.layer() for node in group.findLayers()}
         inside = by_name["В границах СЗЗ"]
         self.assertEqual(inside.featureCount(), 3)
+        points = by_name["Точки границы СЗЗ (МСК-23 зона 1)"]
+        self.assertIn("МСК-23 зона 1", points.crs().description())  # названа, а не «unknown»
         self.assertEqual(inside.attributeDisplayName(inside.fields().indexOf("szz_pct")),
                          "Доля участка в СЗЗ, %")
         near = by_name["За границей СЗЗ до 100 м"]

@@ -8,6 +8,7 @@ from qgis.core import (
     QgsCoordinateTransform,
     QgsFeatureRequest,
     QgsGeometry,
+    QgsPointXY,
 )
 
 # Доля площади участка внутри границы предприятия, с которой участок считается
@@ -342,3 +343,46 @@ def split(rows, classifier):
     near.sort(key=lambda item: (round(item[1], 1), cad_sort_key(item[0]["cad"])))
     own.sort(key=lambda item: cad_sort_key(item[0]["cad"]))
     return inside, near, own
+
+
+def _ring_points(ring, clockwise):
+    """Вершины контура без повтора последней, по нужному обходу, с северо-западной первой."""
+    points = [QgsPointXY(p) for p in ring]
+    if len(points) > 1 and points[0] == points[-1]:
+        points = points[:-1]
+    clean = []
+    for p in points:  # подряд одинаковые вершины — одна точка
+        if not clean or p.distance(clean[-1]) > 0.001:
+            clean.append(p)
+    if len(clean) > 1 and clean[0].distance(clean[-1]) <= 0.001:
+        clean.pop()
+    # знак площади (формула шнурования): > 0 — против часовой при оси Y на север
+    area = sum(a.x() * b.y() - b.x() * a.y() for a, b in zip(clean, clean[1:] + clean[:1]))
+    if (area > 0) == clockwise:
+        clean.reverse()
+    # северо-западная: дальше всех по направлению на северо-запад (−x + y)
+    start = max(range(len(clean)), key=lambda i: (clean[i].y() - clean[i].x(), clean[i].y()))
+    return clean[start:] + clean[:start]
+
+
+def szz_points(geometry):
+    """Каталог точек границы СЗЗ: [(№, X на север, Y на восток, № контура)].
+
+    Внешний контур — по часовой, внутренний — против, каждый с северо-западной вершины;
+    в конце контура повторяется его первая точка. Номера сквозные. Геометрия — в той СК,
+    в которой нужны координаты (МСК)."""
+    rows = []
+    number = 0
+    contour = 0
+    polygons = geometry.asMultiPolygon() if geometry.isMultipart() else [geometry.asPolygon()]
+    for polygon in polygons:
+        for index, ring in enumerate(polygon):
+            contour += 1
+            points = _ring_points(ring, clockwise=(index == 0))
+            first = number + 1
+            for p in points:
+                number += 1
+                rows.append((number, round(p.y(), 2), round(p.x(), 2), contour))
+            if points:
+                rows.append((first, round(points[0].y(), 2), round(points[0].x(), 2), contour))
+    return rows

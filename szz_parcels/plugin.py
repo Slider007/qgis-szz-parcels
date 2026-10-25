@@ -16,7 +16,7 @@ from qgis.PyQt.QtCore import QUrl
 from qgis.PyQt.QtGui import QColor, QDesktopServices, QIcon
 from qgis.PyQt.QtWidgets import QPushButton
 
-from . import altan_toolbar, mapmaker
+from . import altan_toolbar, mapmaker, msk
 
 try:  # Qt6 / QGIS 4: QAction живёт в QtGui
     from qgis.PyQt.QtGui import QAction
@@ -153,14 +153,13 @@ class SzzParcelsPlugin:
         extent = QgsCoordinateTransform(zone.crs(), crs, project).transformBoundingBox(zone.extent())
         extent.grow(0.05 * max(extent.width(), extent.height()))
         title = "Схема расположения земельных участков в санитарно-защитной зоне"
-        if params.get("OBJECT"):
-            title += " " + params["OBJECT"]
         subtitle = ("СЗЗ совпадает с границей предприятия; " if from_enterprise else "") + \
             "участки в границах СЗЗ и за её границей на расстоянии до {:g} м".format(distance)
         layout = mapmaker.build_layout(
             project, title, subtitle, extent,
             [(enterprise, "Граница предприятия"), (szz, "Санитарно-защитная зона")]
-            + [(layer, None) for layer in layers] + [(zone, None)], crs)
+            + [(layer, "Характерные точки границы СЗЗ" if layer.geometryType() == Qgis.GeometryType.Point
+                else None) for layer in layers] + [(zone, None)], crs, params.get("OBJECT", ""))
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
         except OSError:
@@ -249,6 +248,21 @@ class SzzParcelsPlugin:
             project.addMapLayer(layer, False)
             group.addLayer(layer)
             layers.append(layer)
+        points = context.takeResultLayer(results["POINTS"]) if results.get("POINTS") else None
+        if points is not None:
+            name = results.get("COORD_CRS_NAME", "МСК")
+            points.setName("Точки границы СЗЗ ({})".format(name))
+            # СК слоя — МСК под своим названием (как в «СК проекта»), а не «unknown»:
+            # регистрируется здесь, в основном потоке, а не в фоновой задаче расчёта
+            item = next((i for i in msk.items() if msk.short_name(i) == name), None)
+            if item is not None:
+                points.setCrs(msk.crs_for(item))
+            points.setCustomProperty("szz_parcels/result", True)
+            for field, alias in (("num", "№ точки"), ("x", "X, м"), ("y", "Y, м"), ("contour", "Контур")):
+                points.setFieldAlias(points.fields().indexOf(field), alias)
+            mapmaker.style_points(points)
+            project.addMapLayer(points, False)
+            group.insertLayer(0, points)
         zone = context.takeResultLayer(results["SEARCH"]) if results.get("SEARCH") else None
         if zone is not None:
             zone.setName("Зона поиска до {:g} м".format(distance))
@@ -266,7 +280,8 @@ class SzzParcelsPlugin:
                 os.path.basename(os.path.dirname(files[0])))
         map_pdf = params.get("MAP_PDF")
         if map_pdf and zone is not None:
-            if self._make_map(params, layers, zone, from_enterprise, distance, map_pdf):
+            if self._make_map(params, layers + ([points] if points is not None else []),
+                              zone, from_enterprise, distance, map_pdf):
                 files.append(map_pdf)
                 text += " Карта: «{}».".format(os.path.basename(map_pdf))
             else:

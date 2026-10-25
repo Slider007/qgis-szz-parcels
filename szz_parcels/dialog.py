@@ -23,6 +23,7 @@ from qgis.gui import (
     QgsFieldComboBox,
     QgsFileWidget,
     QgsMapLayerComboBox,
+    QgsProjectionSelectionWidget,
     QgsRubberBand,
 )
 from qgis.PyQt.QtCore import Qt, QTimer
@@ -210,6 +211,13 @@ class SzzDialog(QDialog):
             spin = self._spin(" м", 0, 1000, 2, "depth_" + key, core.DEPTHS[key])
             self.depth_spins[key] = spin
             form.addRow(name[:1].upper() + name[1:] + ":", spin)
+        self.coord_crs = QgsProjectionSelectionWidget()
+        self.coord_crs.setOptionVisible(QgsProjectionSelectionWidget.CrsOption.CrsNotSet, True)
+        self.coord_crs.setNotSetText("МСК субъекта по месту")
+        saved = QgsCoordinateReferenceSystem(_settings_value("coord_crs", "", str))
+        self.coord_crs.setCrs(saved)
+        self.coord_crs.crsChanged.connect(self._remember)
+        form.addRow("СК каталога координат:", self.coord_crs)
         self.defaults_button = QPushButton("По умолчанию")
         self.defaults_button.setToolTip("Вернуть допуски по требованиям Росреестра к точности границ")
         self.defaults_button.clicked.connect(self._default_tolerances)
@@ -229,6 +237,12 @@ class SzzDialog(QDialog):
         self.map_on.setChecked(_settings_value("map", True, bool))
         self.map_on.toggled.connect(self._remember)
         form.addRow("Карта:", self.map_on)
+        self.coords = QCheckBox("каталог координат границы СЗЗ (таблица 3, точки на карте)")
+        self.coords.setToolTip("Координаты точек границы СЗЗ в МСК субъекта. МСК — по месту "
+                               "(нужен интернет) или в «Дополнительно».")
+        self.coords.setChecked(_settings_value("coords", True, bool))
+        self.coords.toggled.connect(self._remember)
+        form.addRow("Координаты:", self.coords)
         layout.addWidget(box)
 
         self.status = QLabel()
@@ -328,7 +342,10 @@ class SzzDialog(QDialog):
         settings.setValue(SETTINGS + "same", self.same.isChecked())
         settings.setValue(SETTINGS + "xlsx", self.xlsx_on.isChecked())
         settings.setValue(SETTINGS + "docx", self.docx_on.isChecked())
-        for key in ("direction", "direction_from", "map_on"):
+        if getattr(self, "coord_crs", None) is not None:
+            settings.setValue(SETTINGS + "coord_crs", self.coord_crs.crs().authid()
+                              if self.coord_crs.crs().isValid() else "")
+        for key in ("direction", "direction_from", "map_on", "coords"):
             widget = getattr(self, key, None)
             if widget is not None:
                 value = widget.currentIndex() if key == "direction_from" else widget.isChecked()
@@ -585,6 +602,9 @@ class SzzDialog(QDialog):
             "DIRECTION_FROM": self.direction_from.currentIndex(),
             "SEARCH": "TEMPORARY_OUTPUT",
             "MAP_PDF": self._map_path() if self.map_on.isChecked() else None,
+            "COORDS": self.coords.isChecked(),
+            "COORD_CRS": self.coord_crs.crs() if self.coord_crs.crs().isValid() else None,
+            "POINTS": "TEMPORARY_OUTPUT" if self.coords.isChecked() else None,
             "OBJECT": self.object_name.text().strip(),
             "INSIDE": "TEMPORARY_OUTPUT",
             "NEAR": "TEMPORARY_OUTPUT",
