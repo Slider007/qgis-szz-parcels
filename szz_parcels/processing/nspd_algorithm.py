@@ -13,6 +13,7 @@ from qgis.core import (
     QgsProcessingParameterDistance,
     QgsProcessingParameterFeatureSink,
     QgsProcessingParameterFeatureSource,
+    QgsProcessingParameterString,
 )
 from qgis.PyQt.QtCore import QMetaType
 
@@ -52,6 +53,9 @@ class NspdParcelsAlgorithm(SzzRegistryAlgorithm):
             self.SZZ, self.tr("СЗЗ (пусто — СЗЗ по границе предприятия)"),
             [Qgis.ProcessingSourceType.VectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterDistance(
+            self.SZZ_WIDTH, self.tr("Без слоя СЗЗ: размер СЗЗ от границы предприятия, м "
+                                    "(0 — СЗЗ по границе)"), 0.0, self.ENTERPRISE, False, 0.0))
+        self.addParameter(QgsProcessingParameterDistance(
             self.DISTANCE, self.tr("Загрузить участки за границей СЗЗ на расстоянии до, м"),
             100.0, self.ENTERPRISE, False, 0.0))
         self.addParameter(QgsProcessingParameterFeatureSink(
@@ -64,6 +68,8 @@ class NspdParcelsAlgorithm(SzzRegistryAlgorithm):
             raise QgsProcessingException(self.invalidSourceError(parameters, self.ENTERPRISE))
         szz_src = self.parameterAsSource(parameters, self.SZZ, context)
         distance = self.parameterAsDouble(parameters, self.DISTANCE, context)
+        if szz_src is None:  # СЗЗ размером: граница + N м, зона поиска — ещё на расстояние дальше
+            distance += self.parameterAsDouble(parameters, self.SZZ_WIDTH, context)
 
         # зона поиска — как в реестре: в метрах, затем в EPSG:4326 для НСПД
         out_crs = enterprise_src.sourceCrs()
@@ -83,7 +89,15 @@ class NspdParcelsAlgorithm(SzzRegistryAlgorithm):
         if feedback.isCanceled():
             return {}
         feedback.setProgress(80)
+        if out_crs.isGeographic() or not out_crs.isValid():
+            out_crs = work_crs
+        dest_id = self._write(found, parameters, context, out_crs)
+        feedback.pushInfo(self.tr("Загружено участков: {}").format(len(found)))
+        feedback.setProgress(100)
+        return {self.OUTPUT: dest_id, "COUNT": len(found)}
 
+    def _write(self, found, parameters, context, out_crs):
+        """Участки из ответа НСПД (EPSG:3857) — в слой OUTPUT в out_crs с полями карточки."""
         keys = []
         for _, _, options in found:
             keys.extend(k for k in options if k not in keys)
@@ -91,8 +105,6 @@ class NspdParcelsAlgorithm(SzzRegistryAlgorithm):
         fields.append(QgsField("interactionId", QMetaType.Type.LongLong))
         for key in keys:
             fields.append(QgsField(key, QMetaType.Type.QString))
-        if out_crs.isGeographic() or not out_crs.isValid():
-            out_crs = work_crs
         sink, dest_id = self.parameterAsSink(parameters, self.OUTPUT, context, fields,
                                              Qgis.WkbType.MultiPolygon, out_crs)
         if sink is None:
@@ -112,6 +124,64 @@ class NspdParcelsAlgorithm(SzzRegistryAlgorithm):
             sink.addFeature(feature, QgsFeatureSink.Flag.FastInsert)
         if hasattr(sink, "finalize"):
             sink.finalize()
+        return dest_id
+
+
+class NspdEnterpriseAlgorithm(NspdParcelsAlgorithm):
+    """Граница предприятия — участок ЕГРН по кадастровому номеру (один или несколько через запятую)."""
+    CAD = "CAD"
+
+    def createInstance(self):
+        return NspdEnterpriseAlgorithm()
+
+    def name(self):
+        return "nspd_parcel"
+
+    def displayName(self):
+        return self.tr("Участок предприятия с НСПД по кадастровому номеру")
+
+    def shortHelpString(self):
+        return self.tr(
+            "Граница земельного участка (или нескольких — номера через запятую) с публичной "
+            "кадастровой карты НСПД по кадастровому номеру: слой для границы предприятия. "
+            "НСПД доступен только из России; участок без координат границ не загрузится.")
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterString(
+            self.CAD, self.tr("Кадастровые номера участков предприятия")))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Участок предприятия"), Qgis.ProcessingSourceType.VectorPolygon))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        numbers = core.cad_numbers(self.parameterAsString(parameters, self.CAD, context))
+        if not numbers:
+            raise QgsProcessingException(self.tr(
+                "Введите кадастровый номер участка, например 23:43:0000000:123."))
+        found, missing = [], []
+        try:
+            for number in numbers:
+                part = nspd.parcels(nspd.find(number, feedback))
+                if feedback.isCanceled():
+                    return {}
+                if part:
+                    found.extend(part)
+                else:
+                    missing.append(number)
+        except nspd.NspdError as e:
+            raise QgsProcessingException(str(e))
+        if not found:
+            raise QgsProcessingException(self.tr(
+                "НСПД не нашёл участок с границами по номеру {}. Проверьте номер: у участка без "
+                "координат границ в ЕГРН контура нет.").format(", ".join(missing)))
+        if missing:
+            feedback.pushWarning(self.tr("Не найдены на НСПД (или без границ): {}").format(
+                ", ".join(missing)))
+        # СК — проекта, если она в метрах, иначе зона UTM по месту
+        out_crs = context.project().crs() if context.project() else QgsCoordinateReferenceSystem()
+        if not out_crs.isValid() or not core.true_metres(out_crs):
+            shape = QgsGeometry(found[0][1])
+            shape.transform(QgsCoordinateTransform(WEB_MERCATOR, WGS84, context.transformContext()))
+            out_crs = core.working_crs(WGS84, shape)
+        dest_id = self._write(found, parameters, context, out_crs)
         feedback.pushInfo(self.tr("Загружено участков: {}").format(len(found)))
-        feedback.setProgress(100)
-        return {self.OUTPUT: dest_id, "COUNT": len(found)}
+        return {self.OUTPUT: dest_id, "COUNT": len(found), "MISSING": ", ".join(missing)}

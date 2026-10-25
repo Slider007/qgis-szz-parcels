@@ -78,11 +78,12 @@ def _layer_filter(*names):
 
 
 class SzzDialog(QDialog):
-    def __init__(self, iface, run_callback, nspd_callback=None, parent=None):
+    def __init__(self, iface, run_callback, nspd_callback=None, parent=None, enterprise_callback=None):
         super().__init__(parent or iface.mainWindow())
         self.iface = iface
         self.run_callback = run_callback
         self.nspd_callback = nspd_callback
+        self.enterprise_callback = enterprise_callback
         self.setWindowTitle("Реестр участков в СЗЗ")
         self._connected = []  # (слой, сигнал) — отключаются при смене слоя и закрытии
         self._bands = []
@@ -121,8 +122,31 @@ class SzzDialog(QDialog):
         form.addRow("Граница предприятия:", self.enterprise)
         self.enterprise_selected = QCheckBox("только выделенные объекты")
         form.addRow("", self.enterprise_selected)
-        self.same = QCheckBox("СЗЗ совпадает с границей предприятия")
+        # граница — участок ЕГРН по номеру (пожелание 2026-10-25, как в «поиске по кадастровому номеру»)
+        self.enterprise_cad = QLineEdit()
+        self.enterprise_cad.setPlaceholderText("23:43:0000000:123, можно несколько через запятую")
+        self.cad_button = QPushButton("Найти на НСПД")
+        self.cad_button.setToolTip("Загрузить границу участка предприятия с публичной кадастровой "
+                                   "карты НСПД и выбрать её границей. Нужен интернет из России.")
+        self.cad_button.clicked.connect(self._load_enterprise)
+        self.enterprise_cad.textChanged.connect(self.update_nspd_button)
+        row = QHBoxLayout()
+        row.addWidget(self.enterprise_cad, 1)
+        row.addWidget(self.cad_button)
+        form.addRow("или по номеру:", row)
+        self.same = QCheckBox("СЗЗ без слоя — от границы предприятия")
         form.addRow("", self.same)
+        self.szz_width = QDoubleSpinBox()
+        self.szz_width.setRange(0, 100000)
+        self.szz_width.setDecimals(0)
+        self.szz_width.setSingleStep(50)
+        self.szz_width.setSuffix(" м")
+        self.szz_width.setSpecialValueText("0 — совпадает с границей")
+        self.szz_width.setToolTip("Размер СЗЗ во все стороны от границы предприятия; 0 — СЗЗ "
+                                  "совпадает с границей, расстояния считаются от неё")
+        self.szz_width.setValue(_settings_value("szz_width", 0.0, float))
+        self.szz_width_label = QLabel("Размер СЗЗ:")
+        form.addRow(self.szz_width_label, self.szz_width)
         self.szz = QgsMapLayerComboBox()
         self.szz.setFilters(_layer_filter("PolygonLayer"))
         # слой СЗЗ не угадывается: без слоя «СЗЗ…» в проекте выбор пустой, а не слой участков
@@ -193,6 +217,12 @@ class SzzDialog(QDialog):
         self.direction_from.currentIndexChanged.connect(self._remember)
         form.addRow("", self.direction)
         form.addRow("Направление считать:", self.direction_from)
+        self.normed = QCheckBox("отмечать нормируемые территории (жильё, сады, отдых, школы, больницы)")
+        self.normed.setToolTip("По ВРИ по документу, перечень — СанПиН 2.2.1/2.1.1.1200-03, п. 5.1. "
+                               "Столбец в таблицах и отдельный слой нормируемых территорий в СЗЗ.")
+        self.normed.setChecked(_settings_value("normed", True, bool))
+        self.normed.toggled.connect(self._remember)
+        form.addRow("", self.normed)
         layout.addWidget(box)
 
         # допуски расхождения границ: свёрнуто, значения запоминаются
@@ -262,6 +292,8 @@ class SzzDialog(QDialog):
         self.szz.layerChanged.connect(self._layers_changed)
         self.parcels.layerChanged.connect(self._parcels_changed)
         self.same.toggled.connect(self._layers_changed)
+        self.szz_width.valueChanged.connect(self._remember)
+        self.szz_width.valueChanged.connect(self.schedule)
         self.enterprise_selected.toggled.connect(self.schedule)
         self.zone_mode.buttonToggled.connect(self._zone_mode_changed)
         self.zone_list.itemChanged.connect(self.schedule)
@@ -340,12 +372,14 @@ class SzzDialog(QDialog):
         settings.setValue(SETTINGS + "distance", self.distance.value())
         settings.setValue(SETTINGS + "share", self.share.isChecked())
         settings.setValue(SETTINGS + "same", self.same.isChecked())
+        if getattr(self, "szz_width", None) is not None:
+            settings.setValue(SETTINGS + "szz_width", self.szz_width.value())
         settings.setValue(SETTINGS + "xlsx", self.xlsx_on.isChecked())
         settings.setValue(SETTINGS + "docx", self.docx_on.isChecked())
         if getattr(self, "coord_crs", None) is not None:
             settings.setValue(SETTINGS + "coord_crs", self.coord_crs.crs().authid()
                               if self.coord_crs.crs().isValid() else "")
-        for key in ("direction", "direction_from", "map_on", "coords"):
+        for key in ("direction", "direction_from", "map_on", "coords", "normed"):
             widget = getattr(self, key, None)
             if widget is not None:
                 value = widget.currentIndex() if key == "direction_from" else widget.isChecked()
@@ -379,6 +413,8 @@ class SzzDialog(QDialog):
             self._watch(szz)
         self.szz.setEnabled(not self.same.isChecked())
         self.szz_label.setEnabled(not self.same.isChecked())
+        self.szz_width.setEnabled(self.same.isChecked())
+        self.szz_width_label.setEnabled(self.same.isChecked())
         self._fill_zones()
         self._update_selection_labels()
         self.update_nspd_button()
@@ -476,22 +512,36 @@ class SzzDialog(QDialog):
         ready = self.enterprise.currentLayer() is not None and (
             self.same.isChecked() or self.szz.currentLayer() is not None)
         self.nspd_button.setEnabled(ready and self.nspd_callback is not None)
+        self.cad_button.setEnabled(self.enterprise_callback is not None
+                                   and bool(core.cad_numbers(self.enterprise_cad.text())))
+
+    def _new_file(self, name):
+        """Свободный путь «<name>.gpkg» в «Карты СЗЗ» рядом с проектом (папка создаётся)."""
+        folder = os.path.join(QgsProject.instance().homePath() or os.path.expanduser("~"),
+                              OUTPUT_FOLDER)
+        os.makedirs(folder, exist_ok=True)
+        stem = os.path.join(folder, name)
+        number = 1
+        while os.path.exists(_numbered(stem + ".gpkg", number)):
+            number += 1
+        return _numbered(stem + ".gpkg", number)
+
+    def _load_enterprise(self):
+        numbers = core.cad_numbers(self.enterprise_cad.text())
+        if not numbers or self.enterprise_callback is None:
+            return
+        # «:» в имени файла на Windows нельзя — номер с «_»
+        name = "Участок предприятия {}".format(numbers[0].replace(":", "_"))
+        self.enterprise_callback({"CAD": ", ".join(numbers), "OUTPUT": self._new_file(name)}, self)
 
     def nspd_parameters(self):
         """Параметры szzparcels:nspd: та же зона, что у реестра, файл — в «Карты СЗЗ»."""
         params = self.parameters_zone()
         params["DISTANCE"] = self.distance.value()
-        folder = os.path.join(QgsProject.instance().homePath() or os.path.expanduser("~"),
-                              OUTPUT_FOLDER)
-        stem = os.path.join(folder, "Участки НСПД {}".format(datetime.date.today().isoformat()))
-        number = 1
-        while os.path.exists(_numbered(stem + ".gpkg", number)):
-            number += 1
-        params["OUTPUT"] = _numbered(stem + ".gpkg", number)
+        params["OUTPUT"] = self._new_file("Участки НСПД {}".format(datetime.date.today().isoformat()))
         return params
 
     def _load_nspd(self):
-        os.makedirs(os.path.dirname(self.nspd_parameters()["OUTPUT"]), exist_ok=True)
         self.nspd_callback(self.nspd_parameters(), self)
 
     def _map_path(self):
@@ -568,7 +618,7 @@ class SzzDialog(QDialog):
             return "Выберите поле кадастрового номера."
         if not self.same.isChecked():
             if self.szz.currentLayer() is None:
-                return "Выберите слой СЗЗ или отметьте «СЗЗ совпадает с границей предприятия»."
+                return "Выберите слой СЗЗ или отметьте «СЗЗ без слоя — от границы предприятия»."
             mode, ids = self.zone_choice()
             if mode == LIST and not ids:
                 return "Отметьте в списке хотя бы одну зону."
@@ -586,6 +636,8 @@ class SzzDialog(QDialog):
             if mode == LIST:
                 source.filterExpression = "$id IN ({})".format(", ".join(str(i) for i in ids))
             params["SZZ"] = source
+        else:
+            params["SZZ_WIDTH"] = self.szz_width.value()
         return params
 
     def parameters(self):
@@ -597,6 +649,8 @@ class SzzDialog(QDialog):
             "VRI_DOC_FIELD": self.vri_field.currentField() or None,
             "DISTANCE": self.distance.value(),
             "SHARE": self.share.isChecked(),
+            "NORMED": self.normed.isChecked(),
+            "NORMED_OUT": "TEMPORARY_OUTPUT" if self.normed.isChecked() else None,
             "MIN_OVERLAP": self.min_area.value(),
             "DIRECTION": self.direction.isChecked(),
             "DIRECTION_FROM": self.direction_from.currentIndex(),
@@ -703,6 +757,8 @@ class SzzDialog(QDialog):
             if zone is None:
                 raise ValueError("В выбранных зонах СЗЗ нет контуров — отметьте другую зону "
                                  "или выберите «все зоны слоя».")
+        elif self.szz_width.value() > 0:  # как в алгоритме: граница + размер СЗЗ
+            zone = enterprise.buffer(self.szz_width.value(), 36)
         min_area, depths = self.tolerances()
         classifier = core.Classifier(enterprise, zone, self.distance.value(),
                                      min_overlap=min_area, depths=depths)
@@ -728,7 +784,7 @@ class SzzDialog(QDialog):
             if geometries:
                 band = self._band(color, 90, 1)
                 band.setToGeometry(QgsGeometry.collectGeometry(geometries), parcels.crs())
-        where = "предприятия" if self.same.isChecked() else "СЗЗ"
+        where = "предприятия" if self.same.isChecked() and not self.szz_width.value() else "СЗЗ"
         self.status.setText(
             "На карте: <b style='color:#d62728'>■</b> в границах СЗЗ — {}, "
             "<b style='color:#ff8c00'>■</b> за границей {} до {:g} м — {}; синий пунктир — "

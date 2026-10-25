@@ -600,6 +600,58 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual([r[1] for r in table(near, "dist_m")],
                          ["23:47:0107010:5", "23:47:0107010:8", "23:47:0107010:6"])
 
+    def test_normed_rule(self):
+        """Нормируемые территории — по ВРИ; «электропередачи», «транспорт», «парковки»,
+        «жилищно-коммунальное» — нет."""
+        for vri, expected in (
+                ("Для индивидуального жилищного строительства", "да"), ("ЛПХ", "да"),
+                ("Для садоводства", "да"), ("Дачное строительство", "да"),
+                ("Малоэтажная многоквартирная жилая застройка", "да"),
+                ("Дошкольное, начальное и среднее общее образование", "да"),
+                ("Парки культуры и отдыха", "да"), ("для индивидуального строительства", "да"),
+                ("для эксплуатации имущественного комплекса строений детского сада", "да"),
+                ("Для размещения ВЛ электропередачи", "нет"), ("Автомобильный транспорт", "нет"),
+                ("Стоянки (парковки)", "нет"), ("Хранение автотранспорта (код 2.7.1)", "нет"),
+                ("Для размещения объектов жилищно-коммунального хозяйства", "нет"),
+                ("Для эксплуатации нежилого здания", "нет"), ("Под гаражи", "нет"),
+                ("Склады (код 6.9)", "нет"), (None, "нет данных"), ("Значение отсутствует", "нет данных")):
+            self.assertEqual(core.normed(vri), expected, vri)
+
+    def test_normed_layer_and_word(self):
+        docx = os.path.join(OUT, "нормируемые.docx")
+        result, _ = run(NORMED_OUT="memory:", DOCX=docx)
+        self.assertEqual(result["NORMED_COUNT"], 1)
+        normed = QgsProcessingContextless.layer(result["NORMED_OUT"])
+        self.assertEqual([f["cad_num"] for f in normed.getFeatures()], ["23:47:0107010:10"])
+        inside = QgsProcessingContextless.layer(result["INSIDE"])
+        self.assertEqual({f["cad_num"]: f["normed"] for f in inside.getFeatures()}["23:47:0107010:10"], "да")
+        with zipfile.ZipFile(docx) as z:
+            xml = z.read("word/document.xml").decode("utf-8")
+        self.assertIn("Нормируемая территория", xml)
+        self.assertIn("В границах СЗЗ — 1: 23:47:0107010:10.", xml)
+        result, _ = run(NORMED=False, NORMED_OUT="memory:")
+        self.assertNotIn("normed", QgsProcessingContextless.layer(result["INSIDE"]).fields().names())
+        self.assertNotIn("NORMED_OUT", result)
+
+    def test_szz_by_width(self):
+        """Без слоя СЗЗ, размер 50 м: те же участки, что со слоем СЗЗ ±50 м; расстояния — до СЗЗ."""
+        docx = os.path.join(OUT, "ширина.docx")
+        result, _ = run(szz=False, SZZ_WIDTH=50, SZZ_OUT="memory:", DOCX=docx)
+        self.assertFalse(result["FROM_ENTERPRISE"])
+        self.assertEqual(result["INSIDE_COUNT"], 3)
+        near = QgsProcessingContextless.layer(result["NEAR"])
+        self.assertAlmostEqual({f["cad_num"]: f["dist_m"] for f in near.getFeatures()}["23:47:0107010:3"],
+                               20.0, delta=0.1)
+        zone = QgsProcessingContextless.layer(result["SZZ_OUT"])
+        self.assertEqual(zone.featureCount(), 1)
+        self.assertAlmostEqual(zone.extent().width(), 200, delta=0.5)
+        with zipfile.ZipFile(docx) as z:
+            self.assertIn("50 м от границы предприятия", z.read("word/document.xml").decode("utf-8"))
+        # слой СЗЗ задан — размер не действует
+        result, _ = run(SZZ_WIDTH=500, SZZ_OUT="memory:")
+        self.assertNotIn("SZZ_OUT", result)
+        self.assertEqual(result["INSIDE_COUNT"], 3)
+
     def test_without_share(self):
         result, _ = run(SHARE=False)
         inside = QgsProcessingContextless.layer(result["INSIDE"])
@@ -672,10 +724,11 @@ class RegistryTest(unittest.TestCase):
         self.assertTrue(first.isValid())
         self.assertEqual(first.fields().names(), [
             "№ п/п", "Кадастровый номер", "Категория земель", "ВРИ по документу",
-            "Доля участка в СЗЗ, %", "Направление от предприятия"])
+            "Нормируемая территория", "Доля участка в СЗЗ, %", "Направление от предприятия"])
         rows = [f.attributes() for f in first.getFeatures()]
         self.assertEqual(rows[0][1], "23:47:0107010:2")
-        self.assertAlmostEqual(rows[0][4], 50.0)
+        self.assertEqual(rows[0][4], "нет данных")  # ВРИ пустой
+        self.assertAlmostEqual(rows[0][5], 50.0)
         second = QgsVectorLayer(xlsx + "|layername=За границей СЗЗ", "x", "ogr")
         self.assertEqual(second.featureCount(), 4)
         self.assertEqual(second.fields().names()[-2:], ["Расстояние до СЗЗ, м", "Направление от предприятия"])
@@ -751,7 +804,17 @@ class FakeNspd:
                     "permitted_use_established_by_document": vri,
                     "readable_address": ["край Краснодарский", "г. Новороссийск"]}}})
 
-    def __call__(self, body, feedback=None):
+    def __call__(self, body, feedback=None, url=None):
+        if url is not None:  # поиск по кадастровому номеру
+            from urllib.parse import parse_qs, urlparse
+            query = parse_qs(urlparse(url).query)
+            self.calls.append(query)
+            if self.statuses:
+                return self.statuses.pop(0), b""
+            found = [f for f in self.features if f["properties"]["options"]["cad_num"] == query["query"][0]]
+            if not found:
+                return 404, b'{"message": "not found"}'
+            return 200, json.dumps({"data": {"type": "FeatureCollection", "features": found}}).encode()
         from osgeo import ogr
         area = QgsGeometry.fromWkt(ogr.CreateGeometryFromJson(
             json.dumps(body["geom"]["features"][0]["geometry"])).ExportToWkt())
@@ -789,6 +852,48 @@ def run_nspd(distance=100.0, szz=False, name="нспд.gpkg", **extra):
     feedback = Feedback()
     result = processing.run("szzparcels:nspd", params, feedback=feedback)
     return result, QgsVectorLayer(result["OUTPUT"], "n", "ogr"), feedback
+
+
+class NspdEnterpriseTest(unittest.TestCase):
+    """Граница предприятия по кадастровому номеру (szzparcels:nspd_parcel)."""
+
+    def tearDown(self):
+        nspd.TRANSPORT = nspd.post
+        nspd.SLEEP = time.sleep
+
+    def fetch(self, cad):
+        path = os.path.join(OUT, "предприятие.gpkg")
+        result = processing.run("szzparcels:nspd_parcel", {"CAD": cad, "OUTPUT": path},
+                                feedback=Feedback())
+        return result, QgsVectorLayer(result["OUTPUT"], "e", "ogr")
+
+    def test_found(self):
+        fake = use_nspd(FakeNspd())
+        result, lyr = self.fetch("ПС: 23:47:0107010:9")
+        self.assertEqual(fake.calls[0]["thematicSearchId"], ["1"])
+        self.assertEqual([f["cad_num"] for f in lyr.getFeatures()], ["23:47:0107010:9"])
+        self.assertFalse(lyr.crs().isGeographic())
+        geometry = next(lyr.getFeatures()).geometry()
+        self.assertAlmostEqual(geometry.area(), 6400, delta=5)  # 80×80 м, не градусы и не 3857
+
+    def test_several_and_missing(self):
+        use_nspd(FakeNspd())
+        result, lyr = self.fetch("23:47:0107010:9, 23:47:0107010:2; 23:47:0107010:777")
+        self.assertEqual(lyr.featureCount(), 2)
+        self.assertEqual(result["MISSING"], "23:47:0107010:777")
+
+    def test_not_found_says_why(self):
+        use_nspd(FakeNspd())
+        with self.assertRaisesRegex(Exception, "не нашёл участок.*23:47:0107010:777"):
+            self.fetch("23:47:0107010:777")
+        with self.assertRaisesRegex(Exception, "Введите кадастровый номер"):
+            self.fetch("ПС Тестовая")
+
+    def test_retry_then_ok(self):
+        fake = use_nspd(FakeNspd(statuses=[597]))
+        result, lyr = self.fetch("23:47:0107010:9")
+        self.assertEqual(lyr.featureCount(), 1)
+        self.assertEqual(len(fake.calls), 2)
 
 
 class NspdTest(unittest.TestCase):
@@ -1329,7 +1434,8 @@ class PluginTest(unittest.TestCase):
         # прошлый расчёт в группе выключен, новый — включён
         group = QgsProject.instance().layerTreeRoot().findGroup("Реестр участков в СЗЗ")
         visible = [(n.layer().name(), n.isVisible()) for n in group.findLayers()]
-        self.assertEqual(sum(1 for _, v in visible if v), 4, visible)  # зона, точки, 2 таблицы
+        # зона, нормируемые, точки, 2 таблицы
+        self.assertEqual(sum(1 for _, v in visible if v), 5, visible)
         # масштаб — круглый
         self.assertIn(round(maps[0].scale()), (500, 1000, 2000, 2500, 5000, 10000, 25000))
         # рамка ГОСТ и штамп: название, объект, масштаб; заготовки шаблона не печатаются
@@ -1362,6 +1468,42 @@ class PluginTest(unittest.TestCase):
         # зона поиска — над участками, иначе её пунктир под заливкой
         self.assertTrue(group.children()[0].layer().name().startswith("Зона поиска"))
         self.assertIn("Карта СЗЗ.pdf", " ".join(t for t, _ in self.iface.bar.messages))
+
+    def test_new_controls(self):
+        dialog = self.open()
+        self.assertFalse(dialog.cad_button.isEnabled())
+        dialog.enterprise_cad.setText("23:47:0107010:9")
+        self.assertTrue(dialog.cad_button.isEnabled())
+        dialog.enterprise_cad.setText("ПС Тестовая")
+        self.assertFalse(dialog.cad_button.isEnabled())
+        dialog.same.setChecked(False)
+        self.assertFalse(dialog.szz_width.isEnabled())
+        self.assertNotIn("SZZ_WIDTH", dialog.parameters())
+        dialog.same.setChecked(True)
+        self.assertTrue(dialog.szz_width.isEnabled())
+        dialog.szz_width.setValue(50)
+        params = dialog.parameters()
+        self.assertEqual(params["SZZ_WIDTH"], 50)
+        self.assertTrue(params["NORMED"])
+        self.assertEqual(dialog.nspd_parameters()["SZZ_WIDTH"], 50)
+        dialog.normed.setChecked(False)
+        self.assertIsNone(dialog.parameters()["NORMED_OUT"])
+        dialog.normed.setChecked(True)
+        dialog.szz_width.setValue(0)
+
+    def test_enterprise_by_number_in_dialog(self):
+        use_nspd(FakeNspd())
+        try:
+            dialog = self.open()
+            dialog.enterprise_cad.setText("23:47:0107010:9")
+            dialog.cad_button.click()
+            self.wait()
+        finally:
+            nspd.TRANSPORT = nspd.post
+        layer = dialog.enterprise.currentLayer()
+        self.assertTrue(layer.name().startswith("Участок предприятия 23_47_0107010_9"))
+        self.assertEqual(layer.featureCount(), 1)
+        self.assertTrue(os.path.dirname(layer.source().split("|")[0]).endswith("Карты СЗЗ"))
 
     def test_direction_controls(self):
         dialog = self.open()
@@ -1440,7 +1582,8 @@ class PluginTest(unittest.TestCase):
         group = QgsProject.instance().layerTreeRoot().findGroup("Реестр участков в СЗЗ")
         self.assertIsNotNone(group)
         names = [node.layer().name() for node in group.findLayers()]
-        self.assertEqual(names, ["Зона поиска до 100 м", "Точки границы СЗЗ (МСК-23 зона 1)",
+        self.assertEqual(names, ["Зона поиска до 100 м", "Нормируемые территории в СЗЗ",
+                                 "Точки границы СЗЗ (МСК-23 зона 1)",
                                  "В границах СЗЗ", "За границей СЗЗ до 100 м"])
         by_name = {node.layer().name(): node.layer() for node in group.findLayers()}
         inside = by_name["В границах СЗЗ"]

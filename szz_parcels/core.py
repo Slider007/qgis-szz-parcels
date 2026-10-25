@@ -56,11 +56,21 @@ def direction(enterprise, parcel, from_boundary=False):
         points = line.asPolyline() if line and not line.isEmpty() else []
         if len(points) == 2 and points[0].distance(points[1]) > 0.01:
             return rhumb(points[0].azimuth(points[1]))
-    start = enterprise.centroid().asPoint()
-    end = parcel.centroid().asPoint()
-    if start.distance(end) < 0.01:
+    start, end = _center(enterprise), _center(parcel)
+    if start is None or end is None or start.distance(end) < 0.01:
         return None
     return rhumb(start.azimuth(end))
+
+
+def _center(geometry):
+    """Центр контура; у испорченного (выгрузка ЕГРН) — после makeValid, иначе None."""
+    for g in (geometry, geometry.makeValid() if geometry is not None else None):
+        if g is None or g.isNull() or g.isEmpty():
+            continue
+        center = g.centroid()
+        if not center.isNull() and not center.isEmpty():
+            return center.asPoint()
+    return None
 
 
 def depth_group(category, vri=None):
@@ -76,6 +86,28 @@ def depth_group(category, vri=None):
     if any(w in c for w in ("особо охраняем", "лесного фонда", "водного фонда", "запаса")):
         return "forest"
     return "other"
+
+# Нормируемые территории (СанПиН 2.2.1/2.1.1.1200-03, п. 5.1; перечень утвердил пользователь
+# 2026-10-25): жильё и ИЖС, сады, огороды, дачи, ЛПХ, отдых, рекреация, курорты, санатории, спорт,
+# детские и образовательные учреждения, больницы и поликлиники. Признак — по ВРИ по документу.
+NORMED = re.compile(  # \b: «электропередачи», «транспорт», «парковка» — не дача, спорт и парк
+    r"\b(жил(ой|ого|ых|ая|ые|ищн\w* строит|\w* застрой|\w* дом)|ижс|индивидуальн\w* строит|многоквартир|малоэтажн|"
+    r"среднеэтажн|многоэтажн|блокированн|усадебн|приусадебн|садов|огород|дач|подсобн\w* хозяйств|"
+    r"лпх|отдых|рекреац|курорт|санатор|туризм|спорт|физкульт|детск|дошкольн|школ|образован|"
+    r"просвещен|воспитан|здравоохран|больниц|поликлин|амбулатор|лечебн|медицин|оздоров|"
+    r"парк(?!ов)|сквер|пляж|лагер)")
+NOT_NORMED = re.compile(r"жилищно-коммунальн\w*|гараж\w*|нежил\w*")
+NORMED_YES, NORMED_NO, NORMED_UNKNOWN = "да", "нет", "нет данных"
+
+
+def normed(vri):
+    """Нормируемая ли территория по ВРИ по документу: «да», «нет» или «нет данных»."""
+    value = text(vri)
+    if value is None or value.lower() in UNKNOWN_CATEGORY:
+        return NORMED_UNKNOWN
+    value = NOT_NORMED.sub(" ", value.lower().replace("ё", "е"))
+    return NORMED_YES if NORMED.search(value) else NORMED_NO
+
 
 # Чем заполняются пустые ячейки таблиц
 NO_CATEGORY = "Категория не установлена"  # как в выписке ЕГРН
@@ -127,6 +159,18 @@ def cad_sort_key(cad):
     if not cad:
         return (1, [])
     return (0, [(0, int(p), "") if p.isdigit() else (1, 0, p) for p in re.split(r"(\d+)", cad) if p])
+
+
+CAD_NUMBER = re.compile(r"\d{1,2}:\d{1,2}:\d{6,7}:\d+")
+
+
+def cad_numbers(value):
+    """Кадастровые номера из строки («23:43:0000000:12, 23:43:0000000:13») по порядку, без повторов."""
+    result = []
+    for number in CAD_NUMBER.findall(value or ""):
+        if number not in result:
+            result.append(number)
+    return result
 
 
 def true_metres(crs):

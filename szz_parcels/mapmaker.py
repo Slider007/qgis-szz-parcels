@@ -44,11 +44,43 @@ MM = Qgis.LayoutUnit.Millimeters
 NORTH_ARROW = ":/images/north_arrows/layout_default_north_arrow.svg"
 
 
+def _outline(layer, color, width, style="solid", fill="0,0,0,0"):
+    symbol = QgsFillSymbol.createSimple({"color": fill, "outline_color": color,
+                                         "outline_style": style, "outline_width": str(width)})
+    renderer = layer.renderer()
+    if renderer is not None:
+        renderer.setSymbol(symbol)
+    layer.triggerRepaint()
+
+
 def style_search_zone(layer):
     """Зона поиска — синий пунктир без заливки, как подсветка в окне."""
-    symbol = QgsFillSymbol.createSimple({
-        "color": "0,0,0,0", "outline_color": "31,119,180", "outline_style": "dash",
-        "outline_width": "0.6"})
+    _outline(layer, "31,119,180", 0.6, "dash")
+
+
+def style_enterprise(layer):
+    """Граница предприятия, загруженная по номеру, — оранжевый пунктир, как на значке модуля."""
+    _outline(layer, "230,120,0", 0.8, "dash")
+
+
+def style_szz(layer):
+    """СЗЗ, заданная размером, — красный контур без заливки."""
+    _outline(layer, "200,0,0", 0.8)
+
+
+def style_normed(layer):
+    """Нормируемые территории в СЗЗ — красная штриховка поверх заливки участков в СЗЗ."""
+    from qgis.core import QgsLinePatternFillSymbolLayer, QgsSimpleLineSymbolLayer
+    symbol = QgsFillSymbol()
+    symbol.deleteSymbolLayer(0)
+    hatch = QgsLinePatternFillSymbolLayer()
+    hatch.setLineAngle(45)
+    hatch.setDistance(1.5)
+    hatch.setColor(QColor(160, 0, 0))
+    hatch.setLineWidth(0.3)
+    symbol.appendSymbolLayer(hatch)
+    border = QgsSimpleLineSymbolLayer(QColor(160, 0, 0), 0.6)
+    symbol.appendSymbolLayer(border)
     renderer = layer.renderer()
     if renderer is not None:
         renderer.setSymbol(symbol)

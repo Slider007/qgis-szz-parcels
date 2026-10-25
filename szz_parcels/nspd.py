@@ -15,7 +15,7 @@ import os
 import time
 
 from qgis.core import QgsGeometry, QgsNetworkAccessManager, QgsPointXY, QgsRectangle
-from qgis.PyQt.QtCore import QByteArray, QEventLoop, QTimer, QUrl
+from qgis.PyQt.QtCore import QByteArray, QEventLoop, QTimer, QUrl, QUrlQuery
 from qgis.PyQt.QtNetwork import (
     QNetworkAccessManager,
     QNetworkRequest,
@@ -24,6 +24,8 @@ from qgis.PyQt.QtNetwork import (
 )
 
 URL = "https://nspd.gov.ru/api/geoportal/v1/intersects?typeIntersect=fullObject"
+# поиск объекта ЕГРН по кадастровому номеру — как строка поиска карты (и модуль «Поиск адреса»)
+SEARCH_URL = "https://nspd.gov.ru/api/geoportal/v2/search/geoportal"
 CATEGORY = 36368  # «Земельные участки из ЕГРН»
 CA_BUNDLE = os.path.join(os.path.dirname(__file__), "certs", "nspd-ca-bundle.pem")
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -71,12 +73,13 @@ def _ca_certificates():
     return QSslCertificate.fromPath(CA_BUNDLE, QSsl.EncodingFormat.Pem)
 
 
-def post(body, feedback=None):
-    """(код HTTP или 0 при обрыве, тело ответа). Один запрос, без повторов."""
+def post(body, feedback=None, url=None):
+    """(код HTTP или 0 при обрыве, тело ответа). Один запрос, без повторов.
+    body None — GET по url (поиск по номеру), иначе POST области."""
     manager = QNetworkAccessManager()
     proxy = QgsNetworkAccessManager.instance().proxy()
     manager.setProxy(proxy)
-    request = QNetworkRequest(QUrl(URL))
+    request = QNetworkRequest(QUrl(url or URL))
     for name, value in HEADERS:
         request.setRawHeader(name, value)
     http2 = getattr(QNetworkRequest.Attribute, "Http2AllowedAttribute",
@@ -87,7 +90,8 @@ def post(body, feedback=None):
     ssl.setCaCertificates(ssl.caCertificates() + _ca_certificates())
     request.setSslConfiguration(ssl)
 
-    reply = manager.post(request, QByteArray(json.dumps(body).encode("utf-8")))
+    reply = manager.get(request) if body is None else \
+        manager.post(request, QByteArray(json.dumps(body).encode("utf-8")))
     loop = QEventLoop()
     reply.finished.connect(loop.quit)
     timer = QTimer()
@@ -112,20 +116,27 @@ TRANSPORT = post
 SLEEP = time.sleep
 
 
-def _request(area_wgs84, feedback):
-    """Ответ НСПД по одной области с повторами. None — область слишком большая."""
+def _request(area_wgs84, feedback, url=None):
+    """Ответ НСПД по одной области (или поиск по номеру — url) с повторами.
+    None — область слишком большая."""
     status = 0
     for attempt in range(MAX_ATTEMPTS):
         if feedback is not None and feedback.isCanceled():
             return []
-        status, data = TRANSPORT(payload(area_wgs84), feedback)
+        if url:
+            status, data = TRANSPORT(None, feedback, url)
+        else:
+            status, data = TRANSPORT(payload(area_wgs84), feedback)
         if status == 200:
             try:
-                return json.loads(data.decode("utf-8")).get("features") or []
-            except ValueError:
+                answer = json.loads(data.decode("utf-8"))
+                if url:  # поиск: {"data": {"features": [...]}}
+                    answer = answer.get("data") or {}
+                return answer.get("features") or []
+            except (ValueError, AttributeError):
                 raise NspdError("НСПД прислал ответ, который не удалось прочитать. "
                                 "Повторите загрузку через минуту.")
-        if status == 204:
+        if status == 204 or (url and status == 404):  # 404 поиска — номер не найден
             return []
         if status in TOO_BIG_STATUSES:
             return None
@@ -140,6 +151,18 @@ def _request(area_wgs84, feedback):
         raise NspdError("НСПД временно не пускает запросы (защита от частых обращений). "
                         "Подождите минуту и нажмите «Загрузить с НСПД» ещё раз.")
     raise NspdError("НСПД ответил ошибкой {}. Повторите загрузку позже.".format(status))
+
+
+def find(number, feedback=None):
+    """Участки ЕГРН с этим кадастровым номером (ответ НСПД, как у fetch)."""
+    query = QUrlQuery()
+    query.addQueryItem("query", number)
+    query.addQueryItem("thematicSearchId", "1")  # поиск по ЕГРН
+    url = QUrl(SEARCH_URL)
+    url.setQuery(query)
+    features = _request(None, feedback, url.toString())
+    return [f for f in features or []
+            if ((f.get("properties") or {}).get("options") or {}).get("cad_num", number) == number]
 
 
 def _quarters(area):

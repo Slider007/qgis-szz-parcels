@@ -26,6 +26,7 @@ except ImportError:  # Qt5 / QGIS 3
 PLUGIN_DIR = os.path.dirname(__file__)
 ALGORITHM = "szzparcels:registry"
 NSPD_ALGORITHM = "szzparcels:nspd"
+ENTERPRISE_ALGORITHM = "szzparcels:nspd_parcel"
 NSPD_STYLE = os.path.join(PLUGIN_DIR, "styles", "nspd_parcels.qml")
 TITLE = "Участки в СЗЗ"
 GROUP = "Реестр участков в СЗЗ"
@@ -104,7 +105,8 @@ class SzzParcelsPlugin:
         if self.dialog is None:
             from .dialog import SzzDialog
 
-            self.dialog = SzzDialog(self.iface, self.start, self.load_nspd)
+            self.dialog = SzzDialog(self.iface, self.start, self.load_nspd,
+                                    enterprise_callback=self.load_enterprise)
         self.dialog.show()
         self.dialog.raise_()
         self.dialog.activateWindow()
@@ -126,10 +128,15 @@ class SzzParcelsPlugin:
         if dialog is not None:
             dialog.run_button.setEnabled(False)
             dialog.nspd_button.setEnabled(False)
+            dialog.cad_button.setEnabled(False)
         QgsApplication.taskManager().addTask(task)
 
     def load_nspd(self, params, dialog=None):
         self.start(params, dialog, NSPD_ALGORITHM, "Загрузка участков с НСПД", self.nspd_finished)
+
+    def load_enterprise(self, params, dialog=None):
+        self.start(params, dialog, ENTERPRISE_ALGORITHM, "Участок предприятия с НСПД",
+                   self.enterprise_finished)
 
     def _take_running(self):
         running, self._running = self._running, None
@@ -138,7 +145,7 @@ class SzzParcelsPlugin:
             self.dialog.update_nspd_button()
         return running
 
-    def _make_map(self, params, layers, zone, from_enterprise, distance, path):
+    def _make_map(self, params, layers, zone, from_enterprise, distance, path, szz_size=None):
         """Макет «Карта СЗЗ» и PDF. True — PDF записан."""
         project = QgsProject.instance()
 
@@ -148,12 +155,14 @@ class SzzParcelsPlugin:
             return project.mapLayer(value) if isinstance(value, str) else None
 
         enterprise = layer_of(params.get("ENTERPRISE"))
-        szz = layer_of(params.get("SZZ"))
+        szz = layer_of(params.get("SZZ")) or szz_size
         crs = project.crs() if project.crs().isValid() else zone.crs()
         extent = QgsCoordinateTransform(zone.crs(), crs, project).transformBoundingBox(zone.extent())
         extent.grow(0.05 * max(extent.width(), extent.height()))
         title = "Схема расположения земельных участков в санитарно-защитной зоне"
-        subtitle = ("СЗЗ совпадает с границей предприятия; " if from_enterprise else "") + \
+        width = params.get("SZZ_WIDTH") if szz_size is not None else 0
+        subtitle = ("СЗЗ совпадает с границей предприятия; " if from_enterprise else
+                    "СЗЗ — {:g} м от границы предприятия; ".format(width) if width else "") + \
             "участки в границах СЗЗ и за её границей на расстоянии до {:g} м".format(distance)
         layout = mapmaker.build_layout(
             project, title, subtitle, extent,
@@ -203,6 +212,41 @@ class SzzParcelsPlugin:
                      "слоем участков. Сведения кадастровой карты справочные и не заменяют выписку "
                      "из ЕГРН.".format(count, name, os.path.basename(os.path.dirname(path))),
                      Qgis.MessageLevel.Success, 15)
+
+    def enterprise_finished(self, ok, results):
+        running = self._take_running()
+        if running is None:
+            return
+        task, context, feedback, params = running
+        if not ok:
+            if not feedback.isCanceled():
+                self.message(feedback.errors[-1] if feedback.errors else
+                             "Не удалось загрузить участок с НСПД.", Qgis.MessageLevel.Critical, 0)
+            return
+        path = results.get("OUTPUT")
+        layer = QgsVectorLayer(path, os.path.splitext(os.path.basename(path))[0], "ogr")
+        if not layer.isValid():
+            self.message("Участок загружен, но файл «{}» не открылся.".format(path),
+                         Qgis.MessageLevel.Critical, 0)
+            return
+        mapmaker.style_enterprise(layer)
+        project = QgsProject.instance()
+        project.addMapLayer(layer, False)
+        project.layerTreeRoot().insertLayer(0, layer)
+        if self.dialog is not None:
+            self.dialog.enterprise.setLayer(layer)
+            self.dialog.enterprise_selected.setChecked(False)
+        canvas = self.iface.mapCanvas()
+        extent = QgsCoordinateTransform(layer.crs(), canvas.mapSettings().destinationCrs(),
+                                        project).transformBoundingBox(layer.extent())
+        extent.grow(0.5 * max(extent.width(), extent.height()))
+        canvas.setExtent(extent)
+        canvas.refresh()
+        text = "Граница предприятия загружена с НСПД: слой «{}», выбран в окне.".format(layer.name())
+        if results.get("MISSING"):
+            text += " Не найдены (или без границ): {}.".format(results["MISSING"])
+        self.message(text, Qgis.MessageLevel.Success if not results.get("MISSING")
+                     else Qgis.MessageLevel.Warning, 10)
 
     def finished(self, ok, results):
         running = self._take_running()
@@ -263,6 +307,22 @@ class SzzParcelsPlugin:
             mapmaker.style_points(points)
             project.addMapLayer(points, False)
             group.insertLayer(0, points)
+        normed = context.takeResultLayer(results["NORMED_OUT"]) if results.get("NORMED_OUT") else None
+        if normed is not None and normed.featureCount():  # пустой слой — шум: число есть в сообщении
+            normed.setName("Нормируемые территории в СЗЗ")
+            normed.setCustomProperty("szz_parcels/result", True)
+            apply_aliases(normed, INSIDE_ALIASES)
+            mapmaker.style_normed(normed)
+            project.addMapLayer(normed, False)
+            group.insertLayer(0, normed)
+            layers.append(normed)
+        szz_size = context.takeResultLayer(results["SZZ_OUT"]) if results.get("SZZ_OUT") else None
+        if szz_size is not None:
+            szz_size.setName("СЗЗ {:g} м от границы предприятия".format(params.get("SZZ_WIDTH", 0)))
+            szz_size.setCustomProperty("szz_parcels/result", True)
+            mapmaker.style_szz(szz_size)
+            project.addMapLayer(szz_size, False)
+            group.insertLayer(0, szz_size)
         zone = context.takeResultLayer(results["SEARCH"]) if results.get("SEARCH") else None
         if zone is not None:
             zone.setName("Зона поиска до {:g} м".format(distance))
@@ -273,6 +333,8 @@ class SzzParcelsPlugin:
 
         text = "В границах СЗЗ: {}, за границей до {:g} м: {}.".format(
             results.get("INSIDE_COUNT", 0), distance, results.get("NEAR_COUNT", 0))
+        if params.get("NORMED"):
+            text += " Нормируемых территорий в СЗЗ: {}.".format(results.get("NORMED_COUNT", 0))
         files = [results[k] for k in ("XLSX", "DOCX") if results.get(k)]
         if files:
             text += " Файлы: {} — в папке «{}».".format(
@@ -281,7 +343,7 @@ class SzzParcelsPlugin:
         map_pdf = params.get("MAP_PDF")
         if map_pdf and zone is not None:
             if self._make_map(params, layers + ([points] if points is not None else []),
-                              zone, from_enterprise, distance, map_pdf):
+                              zone, from_enterprise, distance, map_pdf, szz_size):
                 files.append(map_pdf)
                 text += " Карта: «{}».".format(os.path.basename(map_pdf))
             else:

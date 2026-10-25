@@ -37,7 +37,8 @@ msk.USER_AGENT = "QGIS plugin szz_parcels (https://github.com/Slider007/qgis-szz
 GEOCODE = None
 
 INSIDE_ALIASES = {"num": "№ п/п", "cad_num": "Кадастровый номер", "category": "Категория земель",
-                  "vri_doc": "ВРИ по документу", "szz_pct": "Доля участка в СЗЗ, %",
+                  "vri_doc": "ВРИ по документу", "normed": "Нормируемая территория",
+                  "szz_pct": "Доля участка в СЗЗ, %",
                   "dir": "Направление от предприятия"}
 DIRECTION_FROM = ("от центра предприятия", "от ближайшей точки границы предприятия")
 
@@ -83,6 +84,10 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
     VRI_DOC_FIELD = "VRI_DOC_FIELD"
     ENTERPRISE = "ENTERPRISE"
     SZZ = "SZZ"
+    SZZ_WIDTH = "SZZ_WIDTH"
+    NORMED = "NORMED"
+    NORMED_OUT = "NORMED_OUT"
+    SZZ_OUT = "SZZ_OUT"
     DISTANCE = "DISTANCE"
     SHARE = "SHARE"
     DIRECTION = "DIRECTION"
@@ -125,8 +130,8 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             "Две таблицы земельных участков: в границах СЗЗ и ближайшие за её границей в "
             "пределах заданного расстояния, с кадастровым номером, категорией земель, ВРИ по "
             "документу, долей участка в СЗЗ и расстоянием до СЗЗ.\n\n"
-            "Если слой СЗЗ не задан, СЗЗ совпадает с границей предприятия, и расстояния "
-            "отсчитываются от неё. Граница предприятия — полигоны или замкнутые линии "
+            "Если слой СЗЗ не задан, СЗЗ — граница предприятия плюс заданный размер, м "
+            "(0 — СЗЗ совпадает с границей, расстояния отсчитываются от неё). Граница предприятия — полигоны или замкнутые линии "
             "(например, из чертежа); все объекты слоя объединяются, как и все зоны слоя СЗЗ "
             "(чтобы взять часть — «только выделенные»).\n\n"
             "Участки самого предприятия (больше половины площади внутри его границы) в "
@@ -135,7 +140,10 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             "дают одну строку.\n\n"
             "Расстояние — кратчайшее от участка до границы СЗЗ, на плоскости СК слоя участков "
             "(если он в градусах — в зоне UTM по месту).\n\n"
-            "Таблицы можно сохранить в Excel (два листа) и в Word (A4).")
+            "Нормируемые территории (жильё, сады, дачи, отдых, спорт, детские, образовательные и "
+            "лечебные учреждения — СанПиН 2.2.1/2.1.1.1200-03, п. 5.1) отмечаются по ВРИ по "
+            "документу; те, что в СЗЗ, — отдельным слоем.\n\n"
+            "Таблицы можно сохранить в Excel и в Word (A4).")
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(
@@ -157,6 +165,9 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             self.SZZ, self.tr("СЗЗ (пусто — СЗЗ по границе предприятия)"),
             [Qgis.ProcessingSourceType.VectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterDistance(
+            self.SZZ_WIDTH, self.tr("Без слоя СЗЗ: размер СЗЗ от границы предприятия, м "
+                                    "(0 — СЗЗ по границе)"), 0.0, self.ENTERPRISE, False, 0.0))
+        self.addParameter(QgsProcessingParameterDistance(
             self.DISTANCE, self.tr("Искать участки за границей СЗЗ на расстоянии до, м"),
             100.0, self.PARCELS, False, 0.0))
         self.addParameter(QgsProcessingParameterBoolean(
@@ -166,6 +177,9 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterEnum(
             self.DIRECTION_FROM, self.tr("Направление считать"),
             options=[self.tr(o) for o in DIRECTION_FROM], defaultValue=0))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.NORMED, self.tr("Отмечать нормируемые территории (жильё, сады, отдых, школы, "
+                                 "больницы — по ВРИ)"), True))
         self.addParameter(QgsProcessingParameterString(
             self.OBJECT, self.tr("Название предприятия для заголовка в Word"), optional=True))
         for name, text, default, maximum in (
@@ -185,6 +199,12 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             Qgis.ProcessingSourceType.VectorPolygon))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.NEAR, self.tr("Участки за границей СЗЗ"), Qgis.ProcessingSourceType.VectorPolygon))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.SZZ_OUT, self.tr("СЗЗ, заданная размером"), Qgis.ProcessingSourceType.VectorPolygon,
+            optional=True, createByDefault=False))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.NORMED_OUT, self.tr("Нормируемые территории в СЗЗ"),
+            Qgis.ProcessingSourceType.VectorPolygon, optional=True, createByDefault=False))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.SEARCH, self.tr("Зона поиска"), Qgis.ProcessingSourceType.VectorPolygon,
             optional=True, createByDefault=False))
@@ -317,7 +337,10 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         if enterprise_src is None:
             raise QgsProcessingException(self.invalidSourceError(parameters, self.ENTERPRISE))
         szz_src = self.parameterAsSource(parameters, self.SZZ, context)
-        from_enterprise = szz_src is None
+        szz_width = 0.0 if szz_src is not None else \
+            self.parameterAsDouble(parameters, self.SZZ_WIDTH, context)
+        from_enterprise = szz_src is None and szz_width <= 0
+        with_normed = self.parameterAsBoolean(parameters, self.NORMED, context)
         distance = self.parameterAsDouble(parameters, self.DISTANCE, context)
         share = self.parameterAsBoolean(parameters, self.SHARE, context)
         with_direction = self.parameterAsBoolean(parameters, self.DIRECTION, context)
@@ -366,6 +389,9 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             if not zone.intersects(enterprise):
                 feedback.pushWarning(self.tr(
                     "СЗЗ не касается границы предприятия — проверьте, та ли зона выбрана."))
+        elif szz_width > 0:  # СЗЗ задана размером: граница предприятия + N м во все стороны
+            zone = enterprise.buffer(szz_width, 36)
+            zone_names.append(self.tr("{:g} м от границы предприятия").format(szz_width))
         if feedback.isCanceled():
             return {}
         classifier = core.Classifier(
@@ -416,6 +442,28 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             if hasattr(search_sink, "finalize"):
                 search_sink.finalize()
 
+        # СЗЗ, заданная размером, — слоем: для карты и легенды (слоя СЗЗ в проекте нет)
+        results_szz = None
+        if szz_width > 0:
+            szz_fields = QgsFields()
+            szz_fields.append(QgsField("width_m", QMetaType.Type.Double))
+            szz_sink, szz_id = self.parameterAsSink(
+                parameters, self.SZZ_OUT, context, szz_fields, Qgis.WkbType.MultiPolygon,
+                parcels.sourceCrs())
+            if szz_sink is not None:
+                outline = QgsGeometry(classifier.zone)
+                if work_crs != parcels.sourceCrs():
+                    outline.transform(QgsCoordinateTransform(work_crs, parcels.sourceCrs(),
+                                                             context.transformContext()))
+                outline.convertToMultiType()
+                szz_feature = QgsFeature(szz_fields)
+                szz_feature.setGeometry(outline)
+                szz_feature.setAttributes([szz_width])
+                szz_sink.addFeature(szz_feature, QgsFeatureSink.Flag.FastInsert)
+                if hasattr(szz_sink, "finalize"):
+                    szz_sink.finalize()
+                results_szz = szz_id
+
         # каталог координат границы СЗЗ (по выбору пользователя 2026-10-25: МСК по месту,
         # с северо-западной точки по часовой; таблица 3, лист Excel, слой точек, номера на карте)
         coord_rows, coord_name, coord_area, results_points = [], None, None, None
@@ -459,17 +507,22 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             feature = row["feature"]
             category = feature[category_field] if category_field else None
             vri = core.text(feature[vri_field]) if vri_field else None
-            return [row["cad"] or core.NO_VALUE, core.category_text(category),
-                    vri or core.NO_VALUE]
+            values = [row["cad"] or core.NO_VALUE, core.category_text(category),
+                      vri or core.NO_VALUE]
+            if with_normed:
+                values.append(core.normed(vri))
+            return values
 
         def rhumb(row):
             parcel = row["work"][0] if len(row["work"]) == 1 else QgsGeometry.unaryUnion(row["work"])
+            if parcel.isNull():  # контуры не сливаются (испорченная выгрузка) — просто вместе
+                parcel = QgsGeometry.collectGeometry(row["work"])
             return core.direction(enterprise, parcel, from_boundary) or core.NO_VALUE
 
         def fields(last):
             result = QgsFields()
             result.append(QgsField("num", QMetaType.Type.Int))
-            for name in ("cad_num", "category", "vri_doc"):
+            for name in ("cad_num", "category", "vri_doc") + (("normed",) if with_normed else ()):
                 result.append(QgsField(name, QMetaType.Type.QString))
             if last:
                 field = QgsField(last, QMetaType.Type.Double)
@@ -484,6 +537,12 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         near_fields = fields("dist_m")
         results = {}
         tables = []
+        normed_rows = []  # нормируемые территории в СЗЗ: слой и перечень в Word
+        normed_sink, normed_id = (None, None)
+        if with_normed:
+            normed_sink, normed_id = self.parameterAsSink(
+                parameters, self.NORMED_OUT, context, inside_fields, Qgis.WkbType.MultiPolygon,
+                parcels.sourceCrs())
         for key, items, layer_fields, value_name in (
                 (self.INSIDE, inside, inside_fields, "szz_pct" if share else None),
                 (self.NEAR, near, near_fields, "dist_m")):
@@ -508,6 +567,10 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
                 feature.setGeometry(geometry)
                 feature.setAttributes(values)
                 sink.addFeature(feature, QgsFeatureSink.Flag.FastInsert)
+                if key == self.INSIDE and with_normed and values[4] == core.NORMED_YES:
+                    normed_rows.append(values)
+                    if normed_sink is not None:
+                        normed_sink.addFeature(feature, QgsFeatureSink.Flag.FastInsert)
             if hasattr(sink, "finalize"):
                 sink.finalize()
             names = INSIDE_ALIASES if key == self.INSIDE else near_aliases(from_enterprise)
@@ -516,6 +579,16 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
                     _Aliases.create(names))
             results[key] = dest_id
             tables.append(([names[f.name()] for f in layer_fields], table_rows))
+
+        if normed_sink is not None:
+            if hasattr(normed_sink, "finalize"):
+                normed_sink.finalize()
+            if context.willLoadLayerOnCompletion(normed_id):
+                context.layerToLoadOnCompletionDetails(normed_id).setPostProcessor(
+                    _Aliases.create(INSIDE_ALIASES))
+            results[self.NORMED_OUT] = normed_id
+        if with_normed:
+            feedback.pushInfo(self.tr("Нормируемых территорий в СЗЗ: {}").format(len(normed_rows)))
 
         # 4. Файлы
         zone_word = self.tr("границы предприятия") if from_enterprise else self.tr("СЗЗ")
@@ -526,12 +599,15 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         export_tables = []
         for i, (headers, table_rows) in enumerate(tables):
             has_value = (i == 1) or share
-            value_col = 4 if has_value else None
+            value_col = (5 if with_normed else 4) if has_value else None
             # направление — 18: «предприятия» в шапке не рвётся по слогам; место — у ВРИ
-            vri_w = 28 if with_direction else 32
+            vri_w = (28 if with_direction else 32) - (14 if with_normed else 0)
             # «№ п/п» — 9: при 7 шапка переносилась на две строки
-            widths = [9, 21, 22, vri_w] + ([17] if has_value else []) + ([18] if with_direction else [])
-            excel = [7, 22, 30, 50] + ([16] if has_value else []) + ([14] if with_direction else [])
+            widths = [9, 21, 22, vri_w] + ([14] if with_normed else []) + \
+                ([17] if has_value else []) + ([18] if with_direction else [])
+            excel = [7, 22, 30, 50] + ([14] if with_normed else []) + \
+                ([16] if has_value else []) + ([14] if with_direction else [])
+            center = ((4,) if with_normed else ()) + ((len(headers) - 1,) if with_direction else ())
             export_tables.append({
                 "title": titles[i],
                 "sheet": ["В границах СЗЗ", "За границей СЗЗ"][i],
@@ -540,7 +616,7 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
                 "widths": widths,
                 "excel_widths": excel,
                 "decimals": {value_col: 1} if has_value else {},
-                "center": (len(headers) - 1,) if with_direction else (),
+                "center": center,
                 "empty": self.tr("Участков в границах СЗЗ нет.") if i == 0 else
                 self.tr("Участков в пределах {:g} м нет.").format(distance),
             })
@@ -577,6 +653,18 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
                     "; ".join("{} — {} м".format(core.DEPTH_NAMES[k], _ru(v))
                               for k, v in classifier.depths.items()),
                     zone_word))
+            if with_normed:
+                note = self.tr(
+                    "Нормируемые территории (СанПиН 2.2.1/2.1.1.1200-03, п. 5.1: жилая застройка, "
+                    "сады, огороды, дачи, ЛПХ, зоны отдыха, курорты, санатории, спортивные "
+                    "сооружения, детские, образовательные и лечебные учреждения) определены по ВРИ "
+                    "по документу; «нет данных» — ВРИ не указан. ")
+                if normed_rows:
+                    note += self.tr("В границах СЗЗ — {}: {}.").format(
+                        len(normed_rows), ", ".join(str(v[1]) for v in normed_rows))
+                else:
+                    note += self.tr("В границах СЗЗ нормируемых территорий не выявлено.")
+                notes.append(note)
             notes.append(self.tr("Источник сведений: слой «{}», дата составления: {}.").format(
                 parcels.sourceName(), datetime.date.today().strftime("%d.%m.%Y")))
             title = self.tr("Реестр земельных участков в санитарно-защитной зоне")
@@ -589,9 +677,11 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             results[self.SEARCH] = search_id
         if results_points is not None:
             results[self.POINTS] = results_points
+        if results_szz is not None:
+            results[self.SZZ_OUT] = results_szz
         if coord_rows:
             results["COORD_CRS_NAME"] = coord_name
-        results.update({"INSIDE_COUNT": len(inside), "NEAR_COUNT": len(near),
+        results.update({"NORMED_COUNT": len(normed_rows), "INSIDE_COUNT": len(inside), "NEAR_COUNT": len(near),
                         "OWN_COUNT": len(own), "FROM_ENTERPRISE": from_enterprise})
         return results
 
