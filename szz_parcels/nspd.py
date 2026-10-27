@@ -30,6 +30,7 @@ CATEGORY = 36368  # «Земельные участки из ЕГРН»
 # «Территориальные зоны» (ПЗЗ) — номер из каталога слоёв карты НСПД (layerId 875838; снимок
 # каталога 29.09.2026 в github.com/flycited2-dotcom/NSPD, в нём и 36368 участков совпадает)
 TERR_ZONES = 472819
+TERR_THEME = 7  # поиск по номеру: тематика «Территориальные зоны»
 CA_BUNDLE = os.path.join(os.path.dirname(__file__), "certs", "nspd-ca-bundle.pem")
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
@@ -156,16 +157,41 @@ def _request(area_wgs84, feedback, url=None, category=CATEGORY):
     raise NspdError("НСПД ответил ошибкой {}. Повторите загрузку позже.".format(status))
 
 
-def find(number, feedback=None):
-    """Участки ЕГРН с этим кадастровым номером (ответ НСПД, как у fetch)."""
+def _search(text, theme, feedback=None):
     query = QUrlQuery()
-    query.addQueryItem("query", number)
-    query.addQueryItem("thematicSearchId", "1")  # поиск по ЕГРН
+    query.addQueryItem("query", text)
+    query.addQueryItem("thematicSearchId", str(theme))
     url = QUrl(SEARCH_URL)
     url.setQuery(query)
-    features = _request(None, feedback, url.toString())
-    return [f for f in features or []
+    return _request(None, feedback, url.toString()) or []
+
+
+def find(number, feedback=None):
+    """Участки ЕГРН с этим кадастровым номером (ответ НСПД, как у fetch)."""
+    return [f for f in _search(number, 1, feedback)  # 1 — объекты недвижимости
             if ((f.get("properties") or {}).get("options") or {}).get("cad_num", number) == number]
+
+
+def zone_cards(zones, feedback=None):
+    """Карточки территориальных зон. По области НСПД отдаёт только реестровый номер
+    (reg_numb_border); название по ПЗЗ, вид зоны, ВРИ и документ — в поиске по номеру
+    (тематика 7 «Территориальные зоны»). zones — список из parcels(), дополняется на месте."""
+    for n, (_, _, options) in enumerate(zones):
+        number = options.get("reg_numb_border")
+        if not number or (feedback is not None and feedback.isCanceled()):
+            continue
+        try:
+            found = _search(number, TERR_THEME, feedback)
+        except NspdError:
+            found = []
+        card = next((((f.get("properties") or {}).get("options") or {}) for f in found
+                     if ((f.get("properties") or {}).get("options") or {}).get("reg_numb_border")
+                     in (None, number)), {})
+        for key, item in card.items():
+            options.setdefault(key, value(item))
+        if feedback is not None:
+            feedback.setProgress(80 + 20 * (n + 1) // len(zones))
+    return zones
 
 
 def _quarters(area):

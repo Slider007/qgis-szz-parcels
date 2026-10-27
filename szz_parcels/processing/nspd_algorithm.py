@@ -102,7 +102,8 @@ class NspdParcelsAlgorithm(SzzRegistryAlgorithm):
             # территориальные зоны ПЗЗ — тем же запросом другой категории; не вышло — участки
             # всё равно отдаются (ПЗЗ внесены в ЕГРН не везде)
             try:
-                zones = nspd.parcels(nspd.fetch(area, feedback, category=nspd.TERR_ZONES))
+                zones = nspd.zone_cards(
+                    nspd.parcels(nspd.fetch(area, feedback, category=nspd.TERR_ZONES)), feedback)
             except nspd.NspdError as e:
                 feedback.pushWarning(self.tr("Территориальные зоны не загружены: {}").format(e))
                 zones = None

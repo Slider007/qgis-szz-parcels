@@ -39,7 +39,8 @@ msk.USER_AGENT = "QGIS plugin szz_parcels (https://github.com/Slider007/qgis-szz
 # Тесты подменяют запрос к сервису адресов (Nominatim): функция (lon, lat) → (ответ, ошибка)
 GEOCODE = None
 
-INSIDE_ALIASES = {"num": "№ п/п", "cad_num": "Кадастровый номер", "category": "Категория земель",
+INSIDE_ALIASES = {"num": "№ п/п", "cad_num": "Кадастровый номер",
+                  "address": "Адрес (местоположение)", "category": "Категория земель",
                   "vri_doc": "ВРИ по документу", "normed": "Нормируемая территория",
                   "terr_zone": "Территориальная зона",
                   "szz_pct": "Доля участка в СЗЗ, %",
@@ -86,6 +87,7 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
     CAD_FIELD = "CAD_FIELD"
     CATEGORY_FIELD = "CATEGORY_FIELD"
     VRI_DOC_FIELD = "VRI_DOC_FIELD"
+    ADDRESS_FIELD = "ADDRESS_FIELD"
     ENTERPRISE = "ENTERPRISE"
     SZZ = "SZZ"
     SZZ_WIDTH = "SZZ_WIDTH"
@@ -168,6 +170,9 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             parentLayerParameterName=self.PARCELS, optional=True))
         self.addParameter(QgsProcessingParameterField(
             self.VRI_DOC_FIELD, self.tr("Поле ВРИ по документу (пусто — найти по названию)"),
+            parentLayerParameterName=self.PARCELS, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.ADDRESS_FIELD, self.tr("Поле адреса участка (пусто — найти по названию)"),
             parentLayerParameterName=self.PARCELS, optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.ENTERPRISE, self.tr("Граница предприятия (полигоны или замкнутые линии)"),
@@ -488,9 +493,11 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
                                      core.CATEGORY_FIELDS)
         vri_field = self._field(parameters, self.VRI_DOC_FIELD, context, parcels,
                                 core.VRI_DOC_FIELDS)
-        feedback.pushInfo(self.tr("Поля: кадастровый номер — «{}», категория — «{}», "
+        address_field = self._field(parameters, self.ADDRESS_FIELD, context, parcels,
+                                    core.ADDRESS_FIELDS)
+        feedback.pushInfo(self.tr("Поля: кадастровый номер — «{}», адрес — «{}», категория — «{}», "
                                   "ВРИ по документу — «{}»").format(
-            cad_field, category_field or "—", vri_field or "—"))
+            cad_field, address_field or "—", category_field or "—", vri_field or "—"))
         if not category_field:
             feedback.pushWarning(self.tr("В слое участков нет поля категории земель: "
                                          "в столбце «Категория не установлена»."))
@@ -659,8 +666,10 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             feature = row["feature"]
             category = feature[category_field] if category_field else None
             vri = core.text(feature[vri_field]) if vri_field else None
-            values = [row["cad"] or core.NO_VALUE, core.category_text(category),
-                      vri or core.NO_VALUE]
+            values = [row["cad"] or core.NO_VALUE]
+            if address_field:
+                values.append(core.text(feature[address_field]) or core.NO_VALUE)
+            values += [core.category_text(category), vri or core.NO_VALUE]
             if with_normed:
                 values.append(core.normed(vri))
             if terr is not None:
@@ -676,7 +685,8 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         def fields(last):
             result = QgsFields()
             result.append(QgsField("num", QMetaType.Type.Int))
-            for name in ("cad_num", "category", "vri_doc") + (("normed",) if with_normed else ()) + \
+            for name in ("cad_num",) + (("address",) if address_field else ()) + \
+                    ("category", "vri_doc") + (("normed",) if with_normed else ()) + \
                     (("terr_zone",) if terr is not None else ()):
                 result.append(QgsField(name, QMetaType.Type.QString))
             if last:
@@ -689,6 +699,7 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
             return result
 
         inside_fields = fields("szz_pct" if share else None)
+        normed_col = 4 + bool(address_field)  # № п/п, номер, [адрес], категория, ВРИ, нормируемая
         near_fields = fields("dist_m")
         results = {}
         tables = []
@@ -722,7 +733,7 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
                 feature.setGeometry(geometry)
                 feature.setAttributes(values)
                 sink.addFeature(feature, QgsFeatureSink.Flag.FastInsert)
-                if key == self.INSIDE and with_normed and values[4] == core.NORMED_YES:
+                if key == self.INSIDE and with_normed and values[normed_col] == core.NORMED_YES:
                     normed_rows.append(values)
                     if normed_sink is not None:
                         normed_sink.addFeature(feature, QgsFeatureSink.Flag.FastInsert)
@@ -754,17 +765,17 @@ class SzzRegistryAlgorithm(QgsProcessingAlgorithm):
         export_tables = []
         for i, (headers, table_rows) in enumerate(tables):
             has_value = (i == 1) or share
-            value_col = (4 + bool(with_normed) + (terr is not None)) if has_value else None
+            value_col = (normed_col + bool(with_normed) + (terr is not None)) if has_value else None
             # направление — 18: «предприятия» в шапке не рвётся по слогам; место — у ВРИ
             vri_w = (28 if with_direction else 32) - (14 if with_normed else 0)
             # «№ п/п» — 9: при 7 шапка переносилась на две строки
-            widths = [9, 21, 22, vri_w] + ([14] if with_normed else []) + \
+            widths = [9, 21] + ([28] if address_field else []) + [22, vri_w] + ([14] if with_normed else []) + \
                 ([22] if terr is not None else []) + \
                 ([17] if has_value else []) + ([18] if with_direction else [])
-            excel = [7, 22, 30, 50] + ([14] if with_normed else []) + \
+            excel = [7, 22] + ([50] if address_field else []) + [30, 50] + ([14] if with_normed else []) + \
                 ([40] if terr is not None else []) + \
                 ([16] if has_value else []) + ([14] if with_direction else [])
-            center = ((4,) if with_normed else ()) + ((len(headers) - 1,) if with_direction else ())
+            center = ((normed_col,) if with_normed else ()) + ((len(headers) - 1,) if with_direction else ())
             export_tables.append({
                 "title": titles[i],
                 "sheet": ["В границах СЗЗ", "За границей СЗЗ"][i],

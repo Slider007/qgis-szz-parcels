@@ -36,6 +36,7 @@ from qgis.PyQt.QtXml import QDomDocument
 
 LAYOUT_NAME = "Карта СЗЗ"
 ZONING_LAYOUT = "Карта градостроительного зонирования"
+BORDER_LAYOUT = "Схема границы СЗЗ"
 TEMPLATE = os.path.join(os.path.dirname(__file__), "templates", "forma_3.qpt")
 PAGE_W, PAGE_H = 420.0, 297.0  # A3 альбомный, мм
 FRAME_LEFT, FRAME = 20.0, 5.0  # поля рамки ГОСТ 2.301
@@ -56,18 +57,53 @@ def _outline(layer, color, width, style="solid", fill="0,0,0,0"):
 
 
 def style_search_zone(layer):
-    """Зона поиска — синий пунктир без заливки, как подсветка в окне."""
-    _outline(layer, "31,119,180", 0.6, "dash")
+    """Зона поиска — серый пунктир без заливки: синий — у границы предприятия."""
+    _outline(layer, "110,110,110", 0.5, "dash")
 
 
 def style_enterprise(layer):
-    """Граница предприятия, загруженная по номеру, — оранжевый пунктир, как на значке модуля."""
-    _outline(layer, "230,120,0", 0.8, "dash")
+    """Граница предприятия, загруженная по номерам, — сплошная синяя линия по внешнему контуру:
+    несколько участков рисуются одним объектом, стыки между ними не видны (пожелание 2026-10-27:
+    красная сливалась с красными участками в СЗЗ)."""
+    from qgis.core import QgsMergedFeatureRenderer, QgsSingleSymbolRenderer
+    symbol = QgsFillSymbol.createSimple({"color": "0,0,0,0", "outline_color": "0,60,220",
+                                         "outline_style": "solid", "outline_width": "1"})
+    layer.setRenderer(QgsMergedFeatureRenderer(QgsSingleSymbolRenderer(symbol)))
+    layer.triggerRepaint()
 
 
 def style_szz(layer):
-    """СЗЗ, заданная размером, — красный контур без заливки."""
-    _outline(layer, "200,0,0", 0.8)
+    """Построенная СЗЗ (сглаженная или размером) — пунктир с мелкими «СЗЗ» вдоль границы,
+    как ЗОУИТ на планах (пожелание 2026-10-27). Надписи — подписями слоя, а не значками линии:
+    подписи QGIS сам ставит читаемо (значки на нижней стороне шли вверх ногами) и не тащит в легенду."""
+    from qgis.core import QgsSimpleLineSymbolLayer
+    color = QColor(130, 0, 170)
+    symbol = QgsFillSymbol()
+    symbol.deleteSymbolLayer(0)
+    line = QgsSimpleLineSymbolLayer(color, 0.5)
+    line.setUseCustomDashPattern(True)
+    line.setCustomDashVector([4.0, 2.0])
+    symbol.appendSymbolLayer(line)
+    renderer = layer.renderer()
+    if renderer is not None:
+        renderer.setSymbol(symbol)
+    settings = QgsPalLayerSettings()
+    settings.isExpression = True
+    settings.fieldName = "'СЗЗ'"
+    settings.placement = Qgis.LabelPlacement.Line  # у полигона — вдоль контура
+    settings.repeatDistance = 30
+    settings.repeatDistanceUnit = Qgis.RenderUnit.Millimeters
+    settings.displayAll = True  # не прятать при наложении на подписи участков
+    text = QgsTextFormat()
+    font = QFont("Arial")
+    font.setPointSizeF(6)
+    text.setFont(font)
+    text.setSize(6)
+    text.setColor(color)
+    settings.setFormat(text)
+    layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
+    layer.setLabelsEnabled(True)
+    layer.triggerRepaint()
 
 
 def style_normed(layer):
@@ -220,12 +256,71 @@ def style_terr_zones(layer, field="name_by_doc"):
     layer.triggerRepaint()
 
 
+def _theme(project, name, layers):
+    """Тема карты name (прежняя заменяется): включены ровно эти слои — для переключения на экране."""
+    from qgis.core import QgsMapThemeCollection
+    record = QgsMapThemeCollection.MapThemeRecord()
+    for layer in layers:
+        record.addLayerRecord(QgsMapThemeCollection.MapThemeLayerRecord(layer))
+    themes = project.mapThemeCollection()
+    if themes.hasMapTheme(name):
+        themes.update(name, record)
+    else:
+        themes.insert(name, record)
+
+
+def _coord_table(layout, rows, header, reserve_top):
+    """Каталог координат справа на поле карты: столбцы по высоте поля. Ширина занятой полосы, мм,
+    или 0, если точек больше, чем помещается (тогда каталог — только в Word)."""
+    from qgis.core import (QgsLayoutFrame, QgsLayoutItemManualTable, QgsLayoutTable,
+                           QgsLayoutTableColumn, QgsTableCell)
+    table = QgsLayoutItemManualTable.create(layout)
+    table.setHeaders([QgsLayoutTableColumn(h) for h in ("№", "X, м", "Y, м")])
+    table.setIncludeTableHeader(True)
+    table.setHeaderMode(QgsLayoutTable.HeaderMode.AllFrames)
+    table.setTableContents([[QgsTableCell(str(n)), QgsTableCell("{:.2f}".format(x)),
+                             QgsTableCell("{:.2f}".format(y))] for n, x, y in rows])
+    table.setColumnWidths([8, 24, 24])
+    for setter, bold in ((table.setContentTextFormat, False), (table.setHeaderTextFormat, True)):
+        font = QFont()
+        font.setPointSizeF(7)
+        font.setBold(bold)
+        text = QgsTextFormat()
+        text.setFont(font)
+        text.setSize(7)
+        setter(text)
+    table.setBackgroundColor(QColor(255, 255, 255))
+    layout.addMultiFrame(table)
+    first = QgsLayoutFrame(layout, table)  # размер таблицы считается только с рамкой
+    table.addFrame(first)
+    size = table.totalSize()
+    row = size.height()  # пустая рамка вмещает одну шапку: её высота = высота строки (шрифт тот же)
+    top = FRAME + 10 + reserve_top  # ниже угловой графы рамки
+    per_frame = int((STAMP_TOP - 3 - top) / row) - 1  # строка шапки — в каждом столбце
+    frames = -(-len(rows) // max(per_frame, 1))
+    width = size.width() + 3
+    if frames > 3:
+        layout.removeMultiFrame(table)
+        layout.removeLayoutItem(first)
+        return 0
+    for k in range(frames):
+        frame = first if k == 0 else QgsLayoutFrame(layout, table)
+        frame.attemptMove(QgsLayoutPoint(PAGE_W - FRAME - (frames - k) * width, top, MM))
+        frame.attemptResize(QgsLayoutSize(size.width(), (per_frame + 1) * row + 1, MM))
+        frame.setBackgroundEnabled(True)
+        if k:
+            table.addFrame(frame)
+    _label(layout, header, PAGE_W - FRAME - frames * width, FRAME + 9, frames * width - 3,
+           reserve_top, 8, True)
+    return frames * width + 3
+
+
 def build_layout(project, title, subtitle, extent, legend_layers, crs=None, object_name="",
-                 name=LAYOUT_NAME, hidden=None):
-    """Новый макет name в рамке ГОСТ (прежний с тем же именем заменяется).
-    legend_layers — [(слой, подпись в легенде или None — имя слоя)]. hidden — слои, которых на
-    этой карте не должно быть (карта зонирования без участков): тогда набор слоёв карты
-    закрепляется — включённые в проекте без hidden, плюс слои легенды."""
+                 name=LAYOUT_NAME, hidden=(), rasters_only=False, table=None):
+    """Новый макет name в рамке ГОСТ и одноимённая тема карты (прежние заменяются).
+    legend_layers — [(слой, подпись в легенде или None — имя слоя)], сверху вниз. Набор слоёв карты
+    закреплён: слои легенды, затем включённые в проекте, кроме hidden (rasters_only — только растры:
+    подложка, без чужих векторных слоёв). table — (заголовок, [(№, X, Y)]): каталог справа на поле."""
     manager = project.layoutManager()
     old = manager.layoutByName(name)
     if old is not None:
@@ -239,30 +334,33 @@ def build_layout(project, title, subtitle, extent, legend_layers, crs=None, obje
         if isinstance(item, QgsLayoutItemLegend):
             layout.removeLayoutItem(item)
 
-    # карта — на всё поле рамки; охват вписывается в часть над штампом, под штампом — продолжение карты
+    # карта — на всё поле рамки; охват вписывается в часть над штампом (и левее каталога),
+    # под штампом и за каталогом — продолжение карты
     item = next(i for i in loaded if isinstance(i, QgsLayoutItemMap))
     for grid in item.grids().asList():  # градусная сетка шаблона на схеме СЗЗ не нужна
         item.grids().removeGrid(grid.id())
+    wanted = [l for l, _ in legend_layers if l is not None]
+    shown = [l for l in project.layerTreeRoot().checkedLayers()
+             if l not in hidden and l not in wanted
+             and (not rasters_only or l.type() == QgsMapLayerType.RasterLayer)]
     item.setFollowVisibilityPreset(False)
-    item.setKeepLayerSet(False)
-    if hidden is not None:
-        wanted = [l for l, _ in legend_layers if l is not None]
-        # из проекта — только подложка (растры, плитки): векторные слои с участками закрыли бы зоны
-        shown = [l for l in project.layerTreeRoot().checkedLayers()
-                 if l not in hidden and l not in wanted and l.type() == QgsMapLayerType.RasterLayer]
-        item.setLayers(wanted + shown)  # сверху вниз: зоны и границы над подложкой
-        item.setKeepLayerSet(True)
+    item.setLayers(wanted + shown)  # сверху вниз: границы и участки над подложкой
+    item.setKeepLayerSet(True)
+    _theme(project, name, wanted + shown)
+    reserve = _coord_table(layout, table[1], table[0], 8) if table else 0
+    if table and not reserve:
+        subtitle += "; точек больше, чем помещается на листе, — каталог координат в реестре Word"
     item.setCrs(crs if crs is not None and crs.isValid() else project.crs())
     item.attemptMove(QgsLayoutPoint(FRAME_LEFT, FRAME, MM))
-    item.attemptResize(QgsLayoutSize(FIELD_W, STAMP_TOP - FRAME, MM))
+    item.attemptResize(QgsLayoutSize(FIELD_W - reserve, STAMP_TOP - FRAME, MM))
     item.zoomToExtent(extent)
     item.setScale(nice_scale(item.scale()))
     top = item.extent()
-    unit = top.width() / FIELD_W
+    unit = top.width() / (FIELD_W - reserve)
     item.attemptResize(QgsLayoutSize(FIELD_W, FIELD_H, MM))
     item.setExtent(QgsRectangle(top.xMinimum(), top.yMaximum() - FIELD_H * unit,
                                 top.xMinimum() + FIELD_W * unit, top.yMaximum()))
-    layout.moveItemToBottom(item)  # карта под рамкой и штампом
+    layout.moveItemToBottom(item)  # карта под рамкой, штампом и каталогом
 
     arrow = next((i for i in loaded if isinstance(i, QgsLayoutItemPicture)), None)
     if arrow is not None:

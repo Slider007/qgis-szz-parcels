@@ -133,6 +133,7 @@ class SzzDialog(QDialog):
                                    "карты НСПД и выбрать её границей. Нужен интернет из России.")
         self.cad_button.clicked.connect(self._load_enterprise)
         self.enterprise_cad.textChanged.connect(self.update_nspd_button)
+        self.enterprise_cad.returnPressed.connect(self._load_enterprise)  # Enter — сразу искать
         row = QHBoxLayout()
         row.addWidget(self.enterprise_cad, 1)
         row.addWidget(self.cad_button)
@@ -212,12 +213,14 @@ class SzzDialog(QDialog):
         self.cad_field = QgsFieldComboBox()
         self.category_field = QgsFieldComboBox()
         self.vri_field = QgsFieldComboBox()
-        for combo in (self.category_field, self.vri_field):
+        self.address_field = QgsFieldComboBox()
+        for combo in (self.category_field, self.vri_field, self.address_field):
             combo.setAllowEmptyFieldName(True)
         self.cad_field.setFilters(QgsFieldProxyModel.Filter.String)
         form.addRow("Кадастровый номер:", self.cad_field)
         form.addRow("Категория земель:", self.category_field)
         form.addRow("ВРИ по документу:", self.vri_field)
+        form.addRow("Адрес участка:", self.address_field)
         # территориальные зоны ПЗЗ: столбец в таблицах и отдельная карта (пожелание 2026-10-27)
         self.terr_zones = QgsMapLayerComboBox()
         self.terr_zones.setFilters(_layer_filter("PolygonLayer"))
@@ -356,7 +359,7 @@ class SzzDialog(QDialog):
         self.zone_mode.buttonToggled.connect(self._zone_mode_changed)
         self.zone_list.itemChanged.connect(self.schedule)
         self.distance.valueChanged.connect(self.schedule)
-        for combo in (self.cad_field, self.category_field, self.vri_field):
+        for combo in (self.cad_field, self.category_field, self.vri_field, self.address_field):
             combo.fieldChanged.connect(self.schedule)
         self.share.toggled.connect(self._remember)
 
@@ -566,7 +569,8 @@ class SzzDialog(QDialog):
         names = layer.fields().names() if layer else []
         for combo, candidates in ((self.cad_field, core.CAD_FIELDS),
                                   (self.category_field, core.CATEGORY_FIELDS),
-                                  (self.vri_field, core.VRI_DOC_FIELDS)):
+                                  (self.vri_field, core.VRI_DOC_FIELDS),
+                                  (self.address_field, core.ADDRESS_FIELDS)):
             combo.blockSignals(True)
             combo.setLayer(layer)
             combo.setField(core.find_field(names, candidates) or "")
@@ -591,8 +595,9 @@ class SzzDialog(QDialog):
         ready = self.enterprise.currentLayer() is not None and (
             self.same.isChecked() or self.szz.currentLayer() is not None)
         self.nspd_button.setEnabled(ready and self.nspd_callback is not None)
+        # номер не узнан — кнопка всё равно нажимается и объясняет формат, а не молчит серой
         self.cad_button.setEnabled(self.enterprise_callback is not None
-                                   and bool(core.cad_numbers(self.enterprise_cad.text())))
+                                   and bool(self.enterprise_cad.text().strip()))
 
     def _new_file(self, name):
         """Свободный путь «<name>.gpkg» в «Карты СЗЗ» рядом с проектом (папка создаётся)."""
@@ -607,8 +612,13 @@ class SzzDialog(QDialog):
 
     def _load_enterprise(self):
         numbers = core.cad_numbers(self.enterprise_cad.text())
-        if not numbers or self.enterprise_callback is None:
+        if self.enterprise_callback is None or not self.enterprise_cad.text().strip():
             return
+        if not numbers:
+            self.status.setText("⚠ <b>Кадастровый номер не распознан. Введите его в виде "
+                                "33:20:011703:117 — несколько через запятую.</b>")
+            return
+        self.enterprise_cad.setText(", ".join(numbers))  # как в ЕГРН: с ведущими нулями
         # «:» в имени файла на Windows нельзя — номер с «_»
         name = "Участок предприятия {}".format(numbers[0].replace(":", "_"))
         self.enterprise_callback({"CAD": ", ".join(numbers), "OUTPUT": self._new_file(name)}, self)
@@ -738,6 +748,7 @@ class SzzDialog(QDialog):
             "CAD_FIELD": self.cad_field.currentField(),
             "CATEGORY_FIELD": self.category_field.currentField() or None,
             "VRI_DOC_FIELD": self.vri_field.currentField() or None,
+            "ADDRESS_FIELD": self.address_field.currentField() or None,
             "DISTANCE": self.distance.value(),
             "SHARE": self.share.isChecked(),
             "NORMED": self.normed.isChecked(),
@@ -746,6 +757,7 @@ class SzzDialog(QDialog):
             "DIRECTION": self.direction.isChecked(),
             "DIRECTION_FROM": self.direction_from.currentIndex(),
             "SEARCH": "TEMPORARY_OUTPUT",
+            "SZZ_OUT": "TEMPORARY_OUTPUT",  # сглаженная или заданная размером — слоем для карты
             "MAP_PDF": self._map_path() if self.map_on.isChecked() else None,
             "COORDS": self.coords.isChecked(),
             "COORD_CRS": self.coord_crs.crs() if self.coord_crs.crs().isValid() else None,
@@ -797,6 +809,11 @@ class SzzDialog(QDialog):
     def update_preview(self):
         """Пересчитать выборку и подсветить её на карте."""
         self._clear_bands()
+        if not self.isVisible():
+            # окно закрыто, а фоновая загрузка с НСПД подставила слой — без окна подсветку
+            # не убрать ничем, кроме повторного открытия (у пользователя 27.10 «слои выключены,
+            # а границы видны»)
+            return
         self.error = self.check()
         if self.error is None:
             try:

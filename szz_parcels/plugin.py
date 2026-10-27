@@ -146,8 +146,10 @@ class SzzParcelsPlugin:
         return running
 
     def _make_map(self, params, layers, zone, from_enterprise, distance, path, szz_size=None,
-                  width=0):
-        """Макет «Карта СЗЗ» и PDF. True — PDF записан."""
+                  width=0, points=None, crs_name=""):
+        """Макеты и PDF: «Карта СЗЗ» (участки), «Карта градостроительного зонирования» (если
+        выбраны зоны ПЗЗ), «Схема границы СЗЗ» (точки и каталог координат). У каждого макета —
+        одноимённая тема карты. True — главная карта записана; прочие PDF — в self.extra_pdfs."""
         project = QgsProject.instance()
 
         def layer_of(value):
@@ -157,37 +159,64 @@ class SzzParcelsPlugin:
 
         enterprise = layer_of(params.get("ENTERPRISE"))
         szz = szz_size or layer_of(params.get("SZZ"))  # сглаженная — вместо исходной
+        original = layer_of(params.get("SZZ")) if szz_size is not None else None
+        terr = layer_of(params.get("TERR_ZONES"))
         crs = project.crs() if project.crs().isValid() else zone.crs()
-        extent = QgsCoordinateTransform(zone.crs(), crs, project).transformBoundingBox(zone.extent())
-        extent.grow(0.05 * max(extent.width(), extent.height()))
-        title = "Схема расположения земельных участков в санитарно-защитной зоне"
+
+        def fit(layer, grow):
+            box = QgsCoordinateTransform(layer.crs(), crs, project).transformBoundingBox(layer.extent())
+            box.grow(grow * max(box.width(), box.height()))
+            return box
+
+        extent = fit(zone, 0.05)
         subtitle = ("СЗЗ совпадает с границей предприятия; " if from_enterprise else
                     "СЗЗ — {:g} м от границы предприятия; ".format(width) if width else "") + \
             "участки в границах СЗЗ и за её границей на расстоянии до {:g} м".format(distance)
-        self.zoning_pdf = None
+        border = [(enterprise, "Граница предприятия"), (szz, "Санитарно-защитная зона")]
+        aside = [l for l in (terr, points, original) if l is not None]  # у них свои карты
+        self.extra_pdfs = []
         layout = mapmaker.build_layout(
-            project, title, subtitle, extent,
-            [(enterprise, "Граница предприятия"), (szz, "Санитарно-защитная зона")]
-            + [(layer, "Характерные точки границы СЗЗ" if layer.geometryType() == Qgis.GeometryType.Point
-                else None) for layer in layers] + [(zone, None)], crs, params.get("OBJECT", ""))
+            project, "Схема расположения земельных участков в санитарно-защитной зоне", subtitle,
+            extent, border + [(layer, None) for layer in layers] + [(zone, None)], crs,
+            params.get("OBJECT", ""), hidden=aside)
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
         except OSError:
             return False
         if not mapmaker.export_pdf(layout, path):
             return False
+        folder, stem = os.path.split(path)
         # карта градостроительного зонирования — тот же охват и рамка, зоны ПЗЗ вместо участков
-        terr = layer_of(params.get("TERR_ZONES"))
         if terr is not None:
-            folder, stem = os.path.split(path)
-            zoning = os.path.join(folder, stem.replace("Карта СЗЗ", "Карта градостроительного зонирования"))
             layout = mapmaker.build_layout(
                 project, "Карта градостроительного зонирования (территориальные зоны по ЕГРН)",
-                subtitle, extent, [(terr, None), (enterprise, "Граница предприятия"),
-                                   (szz, "Санитарно-защитная зона"), (zone, None)],
-                crs, params.get("OBJECT", ""), mapmaker.ZONING_LAYOUT,
-                hidden=layers + [layer_of(params.get("PARCELS"))])  # без участков — зоны видны
-            self.zoning_pdf = zoning if mapmaker.export_pdf(layout, zoning) else None
+                subtitle, extent, border + [(zone, None), (terr, None)], crs, params.get("OBJECT", ""),
+                mapmaker.ZONING_LAYOUT, rasters_only=True)
+            zoning = os.path.join(folder, stem.replace(mapmaker.LAYOUT_NAME, mapmaker.ZONING_LAYOUT))
+            if mapmaker.export_pdf(layout, zoning):
+                self.extra_pdfs.append(zoning)
+        # схема границы СЗЗ: поворотные точки и рядом каталог координат (пожелание 2026-10-27)
+        if points is not None and points.featureCount():
+            rows = []  # каждый контур замыкается своей первой точкой, как в каталоге Word
+            for feature in sorted(points.getFeatures(), key=lambda f: f["num"]):
+                row = (feature["num"], feature["x"], feature["y"])
+                if rows and feature["contour"] != contour:
+                    rows.append(first)
+                if not rows or feature["contour"] != contour:
+                    first, contour = row, feature["contour"]
+                rows.append(row)
+            rows.append(first)
+            outline = szz or enterprise
+            layout = mapmaker.build_layout(
+                project, "Схема границы санитарно-защитной зоны с каталогом координат",
+                "координаты характерных точек — {}".format(crs_name or points.crs().description()),
+                fit(outline, 0.15), [(enterprise, "Граница предприятия"), (szz, "Граница СЗЗ"),
+                                     (points, "Характерные точки границы СЗЗ")],
+                crs, params.get("OBJECT", ""), mapmaker.BORDER_LAYOUT, rasters_only=True,
+                table=("Каталог координат ({})".format(crs_name or points.crs().description()), rows))
+            scheme = os.path.join(folder, stem.replace(mapmaker.LAYOUT_NAME, mapmaker.BORDER_LAYOUT))
+            if mapmaker.export_pdf(layout, scheme):
+                self.extra_pdfs.append(scheme)
         return True
 
     def nspd_finished(self, ok, results):
@@ -354,6 +383,13 @@ class SzzParcelsPlugin:
             mapmaker.style_szz(szz_size)
             project.addMapLayer(szz_size, False)
             group.insertLayer(0, szz_size)
+            if results.get("SMOOTHED"):  # исходная квадратная СЗЗ на карте не нужна — только новая
+                source = params.get("SZZ")
+                if isinstance(source, QgsProcessingFeatureSourceDefinition):
+                    source = source.source.staticValue()
+                original = root.findLayer(source) if isinstance(source, str) else None
+                if original is not None:
+                    original.setItemVisibilityChecked(False)
         zone = context.takeResultLayer(results["SEARCH"]) if results.get("SEARCH") else None
         if zone is not None:
             zone.setName("Зона поиска до {:g} м".format(distance))
@@ -375,14 +411,12 @@ class SzzParcelsPlugin:
             text += " XML для ЕГРН: «{}».".format(os.path.basename(results["ZOUIT_XML"]))
         map_pdf = params.get("MAP_PDF")
         if map_pdf and zone is not None:
-            if self._make_map(params, layers + ([points] if points is not None else []),
-                              zone, from_enterprise, distance, map_pdf, szz_size,
-                              results.get("SZZ_SIZE", 0)):
+            if self._make_map(params, layers, zone, from_enterprise, distance, map_pdf, szz_size,
+                              results.get("SZZ_SIZE", 0), points, results.get("COORD_CRS_NAME", "")):
                 files.append(map_pdf)
-                text += " Карта: «{}».".format(os.path.basename(map_pdf))
-                if getattr(self, "zoning_pdf", None):
-                    files.append(self.zoning_pdf)
-                    self.zoning_pdf = None
+                text += " Карты: {}.".format(", ".join("«{}»".format(os.path.basename(f))
+                                                       for f in [map_pdf] + self.extra_pdfs))
+                files.extend(self.extra_pdfs)
             else:
                 feedback.warnings.append(
                     "Карту «{}» записать не удалось: файл, похоже, открыт или папка недоступна. "
@@ -390,8 +424,11 @@ class SzzParcelsPlugin:
                     .format(os.path.basename(map_pdf)))
         widget = self.iface.messageBar().createMessage(TITLE, text)
         for path in files:
+            name = os.path.basename(path)
             button = QPushButton("Открыть {}".format(
-                {".xlsx": "Excel", ".docx": "Word"}.get(os.path.splitext(path)[1], "карту")))
+                {".xlsx": "Excel", ".docx": "Word"}.get(os.path.splitext(path)[1]) or
+                ("карту ПЗЗ" if name.startswith(mapmaker.ZONING_LAYOUT) else
+                 "схему границы" if name.startswith(mapmaker.BORDER_LAYOUT) else "карту СЗЗ")))
             button.clicked.connect(lambda _=False, p=path: QDesktopServices.openUrl(
                 QUrl.fromLocalFile(p)))
             widget.layout().addWidget(button)

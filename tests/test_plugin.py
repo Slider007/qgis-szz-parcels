@@ -894,6 +894,9 @@ class RegistryTest(unittest.TestCase):
 
 # ------------------------------------------------------------ загрузка с НСПД (сервер подменён)
 
+TERR_CARDS = (("23:47-7.1", "Производственная зона (П-1)"), ("23:47-7.2", "Зона жилой застройки (Ж-1)"))
+
+
 class FakeNspd:
     """Подставной НСПД: участки PARCELS, пересекающие присланную область, в EPSG:3857 —
     в формате настоящего ответа intersects (properties.interactionId, properties.options)."""
@@ -933,6 +936,14 @@ class FakeNspd:
             self.calls.append(query)
             if self.statuses:
                 return self.statuses.pop(0), b""
+            if query["thematicSearchId"] == ["7"]:  # карточка территориальной зоны по номеру
+                name = dict(TERR_CARDS).get(query["query"][0])
+                if name is None:
+                    return 404, b'{"message": "not found"}'
+                return 200, json.dumps({"data": {"type": "FeatureCollection", "features": [
+                    {"type": "Feature", "geometry": None, "properties": {"options": {
+                        "reg_numb_border": query["query"][0], "name_by_doc": name,
+                        "type_zone": "Территориальная зона"}}}]}}).encode()
             found = [f for f in self.features if f["properties"]["options"]["cad_num"] == query["query"][0]]
             if not found:
                 return 404, b'{"message": "not found"}'
@@ -944,13 +955,14 @@ class FakeNspd:
         assert body["categories"] in ([{"id": 36368}], [{"id": nspd.TERR_ZONES}])
         if body["categories"] == [{"id": nspd.TERR_ZONES}]:  # территориальные зоны — две
             zones = []
-            for n, (name, box) in enumerate((("Производственная зона (П-1)", (-100, -100, 105, 300)),
-                                             ("Зона жилой застройки (Ж-1)", (105, -100, 400, 300))), 1):
+            # как настоящий НСПД: по области — только реестровый номер, карточка — поиском
+            for n, ((number, _), box) in enumerate(zip(TERR_CARDS, ((-100, -100, 105, 300),
+                                                                    (105, -100, 400, 300))), 1):
                 g = rect(*box)
                 g.transform(self.to_web)
                 zones.append({"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [
                     [[p.x(), p.y()] for p in g.asPolygon()[0]]]},
-                    "properties": {"interactionId": 5000 + n, "options": {"name_by_doc": name}}})
+                    "properties": {"interactionId": 5000 + n, "options": {"reg_numb_border": number}}})
             return 200, json.dumps({"type": "FeatureCollection", "features": zones}).encode()
         if self.statuses:
             return self.statuses.pop(0), b""
@@ -1423,6 +1435,10 @@ class PluginTest(unittest.TestCase):
         self.assertIn("Территориальных зон (ПЗЗ): 2", text)
         zones = dialog.terr_zones.currentLayer()
         self.assertTrue(zones.name().startswith("Территориальные зоны НСПД"))
+        # по области НСПД отдаёт только номер — название по ПЗЗ взято из карточки зоны
+        self.assertEqual(sorted(f["name_by_doc"] for f in zones.getFeatures()),
+                         ["Зона жилой застройки (Ж-1)", "Производственная зона (П-1)"])
+        self.assertEqual(dialog.address_field.currentField(), "readable_address")
         self.assertEqual(zones.renderer().type(), "categorizedSymbol")
         # расчёт с зонами: столбец в таблицах и вторая карта — градостроительного зонирования
         dialog.map_on.setChecked(True)
@@ -1435,6 +1451,9 @@ class PluginTest(unittest.TestCase):
         shown = [l.name() for l in [i for i in zoning.items() if isinstance(i, QgsLayoutItemMap)][0].layers()]
         self.assertIn(zones.name(), shown)
         self.assertFalse(any(n.startswith("В границах СЗЗ") for n in shown))  # участков на ней нет
+        # адрес участка — столбец реестра (readable_address НСПД)
+        inside = next(l for l in QgsProject.instance().mapLayers().values() if l.name().startswith("В границах СЗЗ"))
+        self.assertEqual({f["address"] for f in inside.getFeatures()}, {"край Краснодарский; г. Новороссийск"})
         from qgis.core import QgsLayoutExporter
         image = QgsLayoutExporter.ImageExportSettings()
         image.generateWorldFile = False
@@ -1465,22 +1484,30 @@ class PluginTest(unittest.TestCase):
                 self.end_headers()
                 self.wfile.write(data)
 
+            def do_GET(self):  # карточки территориальных зон — поиск по номеру
+                status, data = fake(None, url=self.path)
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
             def log_message(self, *args):
                 pass
 
         server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        old = nspd.URL
+        old, old_search = nspd.URL, nspd.SEARCH_URL
         nspd.URL = "http://127.0.0.1:{}/".format(server.server_port)
+        nspd.SEARCH_URL = nspd.URL + "search"
         dialog = self.open()
         dialog.same.setChecked(True)
         try:
             dialog.nspd_button.click()
             self.wait()
         finally:
-            nspd.URL = old
+            nspd.URL, nspd.SEARCH_URL = old, old_search
             server.shutdown()
-        self.assertEqual(len(fake.calls), 2)  # участки и территориальные зоны
+        self.assertEqual(len(fake.calls), 4)  # участки, территориальные зоны и две карточки зон
         self.assertEqual(self.iface.bar.messages[-1][1], Qgis.MessageLevel.Success)
         self.assertGreater(dialog.parcels.currentLayer().featureCount(), 0)
         self.assertEqual(dialog.terr_zones.currentLayer().featureCount(), 2)
@@ -1559,6 +1586,41 @@ class PluginTest(unittest.TestCase):
         self.assertNotIn(dialog.enterprise.currentLayer(), (fake_result, old_name))
         self.assertNotIn(dialog.szz.currentLayer(), (fake_result, old_name))
 
+    def test_smoothed_szz_replaces_square_on_map(self):
+        """Сглаженная СЗЗ — на карте вместо исходной квадратной; точки — по новой границе."""
+        project_dir = os.path.join(OUT, "Проект со сглаживанием")
+        os.makedirs(project_dir, exist_ok=True)
+        QgsProject.instance().setFileName(os.path.join(project_dir, "п.qgz"))
+        square = layer("Polygon", [(rect(-50, -50, 150, 150), ["СЗЗ ПС Тестовая"])], SZZ_FIELDS,
+                       name="СЗЗ квадратная")
+        QgsProject.instance().addMapLayer(square)
+        dialog = self.open()
+        dialog.szz.setLayer(square)
+        dialog.smooth.setChecked(True)
+        dialog.map_on.setChecked(True)
+        dialog._run()
+        self.wait()
+        project = QgsProject.instance()
+        smoothed = [l for l in project.mapLayers().values() if l.name().startswith("СЗЗ сглаженная")]
+        self.assertEqual(len(smoothed), 1, self.iface.bar.messages)
+        self.assertFalse(project.layerTreeRoot().findLayer(square.id()).isVisible())
+        # карта СЗЗ берёт включённые слои проекта: сглаженная включена, исходная — нет
+        self.assertTrue(project.layerTreeRoot().findLayer(smoothed[0].id()).isVisible())
+        self.assertIsNotNone(project.layoutManager().layoutByName("Карта СЗЗ"))
+        # оформление: СЗЗ — пунктир и «СЗЗ» вдоль линии
+        layers = smoothed[0].renderer().symbol().symbolLayers()
+        self.assertEqual([l.layerType() for l in layers], ["SimpleLine"])
+        self.assertTrue(smoothed[0].labelsEnabled())
+        self.assertEqual(smoothed[0].labeling().settings().fieldName, "'СЗЗ'")
+        from qgis.core import QgsLayoutExporter
+        image = QgsLayoutExporter.ImageExportSettings()
+        image.generateWorldFile = False
+        QgsLayoutExporter(project.layoutManager().layoutByName("Карта СЗЗ")).exportToImage(
+            os.path.join(OUT, "карта СЗЗ сглаженная.png"), image)
+        points = [l for l in project.mapLayers().values() if l.name().startswith("Точки границы СЗЗ")][0]
+        self.assertEqual(points.featureCount(), core.vertex_count(next(smoothed[0].getFeatures()).geometry()))
+        dialog.smooth.setChecked(False)
+
     def test_map_pdf_and_layout(self):
         from qgis.core import QgsLayoutItemMap
         project_dir = os.path.join(OUT, "Проект с картой")
@@ -1581,7 +1643,8 @@ class PluginTest(unittest.TestCase):
         self.assertTrue(maps[0].extent().contains(zone[-1].extent()))
         folder = os.path.join(project_dir, "Карты СЗЗ")
         pdfs = sorted(f for f in os.listdir(folder) if f.endswith(".pdf"))
-        self.assertEqual(pdfs, ["Карта СЗЗ 2.pdf", "Карта СЗЗ.pdf"])
+        self.assertEqual(pdfs, ["Карта СЗЗ 2.pdf", "Карта СЗЗ.pdf",
+                                "Схема границы СЗЗ 2.pdf", "Схема границы СЗЗ.pdf"])
         self.assertGreater(os.path.getsize(os.path.join(folder, "Карта СЗЗ.pdf")), 5000)
         near = [l for l in QgsProject.instance().mapLayers().values() if l.name().startswith("За границей")][-1]
         self.assertTrue(near.labelsEnabled())  # подписи — конец кадастрового номера
@@ -1623,12 +1686,32 @@ class PluginTest(unittest.TestCase):
         self.assertTrue(group.children()[0].layer().name().startswith("Зона поиска"))
         self.assertIn("Карта СЗЗ.pdf", " ".join(t for t, _ in self.iface.bar.messages))
 
+    def test_no_highlight_when_closed(self):
+        """Окно закрыто, фоновая загрузка подставила слой — подсветка на карте не появляется."""
+        dialog = self.open()
+        self.assertTrue(dialog._bands)
+        dialog.hide()
+        self.assertFalse(dialog._bands)
+        dialog.parcels.setLayer(self.parcels)  # так делает конец загрузки с НСПД
+        dialog.update_preview()
+        self.assertFalse(dialog._bands)
+        dialog.show()
+        app.processEvents()
+        dialog.update_preview()
+        self.assertTrue(dialog._bands)
+
     def test_new_controls(self):
         dialog = self.open()
         self.assertFalse(dialog.cad_button.isEnabled())
         dialog.enterprise_cad.setText("23:47:0107010:9")
         self.assertTrue(dialog.cad_button.isEnabled())
         dialog.enterprise_cad.setText("ПС Тестовая")
+        self.assertTrue(dialog.cad_button.isEnabled())  # нажимается и объясняет формат
+        dialog.cad_button.click()
+        self.assertIn("не распознан", dialog.status.text())
+        self.assertEqual(core.cad_numbers("33:20:11703:117, 33:20:011703:117; 23:43:0000000:5"),
+                         ["33:20:011703:117", "23:43:0000000:5"])
+        dialog.enterprise_cad.clear()
         self.assertFalse(dialog.cad_button.isEnabled())
         dialog.same.setChecked(False)
         self.assertFalse(dialog.szz_width.isEnabled())
@@ -1678,14 +1761,16 @@ class PluginTest(unittest.TestCase):
         use_nspd(FakeNspd())
         try:
             dialog = self.open()
-            dialog.enterprise_cad.setText("23:47:0107010:9")
-            dialog.cad_button.click()
+            dialog.enterprise_cad.setText("23:47:0107010:9, 23:47:0107010:10")  # несколько — через запятую
+            dialog.enterprise_cad.returnPressed.emit()  # Enter — сразу поиск
             self.wait()
         finally:
             nspd.TRANSPORT = nspd.post
         layer = dialog.enterprise.currentLayer()
         self.assertTrue(layer.name().startswith("Участок предприятия 23_47_0107010_9"))
-        self.assertEqual(layer.featureCount(), 1)
+        self.assertEqual(layer.featureCount(), 2)
+        # красная сплошная граница по внешнему контуру: участки рисуются одним объектом
+        self.assertEqual(layer.renderer().type(), "mergedFeatureRenderer")
         self.assertTrue(os.path.dirname(layer.source().split("|")[0]).endswith("Карты СЗЗ"))
 
     def test_direction_controls(self):
@@ -1722,9 +1807,40 @@ class PluginTest(unittest.TestCase):
         self.assertEqual(len(points), 1)
         self.assertTrue(points[0].labelsEnabled())
         from qgis.core import QgsLayoutItemLegend
-        layout = QgsProject.instance().layoutManager().layoutByName("Карта СЗЗ")
+        from qgis.core import QgsLayoutItemManualTable, QgsLayoutItemMap
+        project = QgsProject.instance()
+        # точки — не на карте участков, а на схеме границы СЗЗ с каталогом координат рядом
+        main = project.layoutManager().layoutByName("Карта СЗЗ")
+        self.assertNotIn(points[0], [i for i in main.items() if isinstance(i, QgsLayoutItemMap)][0].layers())
+        layout = project.layoutManager().layoutByName("Схема границы СЗЗ")
         legend = [i for i in layout.items() if isinstance(i, QgsLayoutItemLegend)][0]
         self.assertIn(points[0].id(), [n.layerId() for n in legend.model().rootGroup().children()])
+        table = [m for m in layout.multiFrames() if isinstance(m, QgsLayoutItemManualTable)][0]
+        contents = table.tableContents()
+        # два контура — каждый замкнут своей первой точкой: 1 2 3 4 1 5 6 7 8 5
+        self.assertEqual([c[0].content() for c in contents], list("12341") + list("56785"))
+        # каталог не закрывает границу: она левее таблицы
+        frame = table.frame(0)
+        self.assertGreater(frame.pagePos().x(), 250)
+        # темы карты — по одной на макет
+        self.assertTrue({"Карта СЗЗ", "Схема границы СЗЗ"} <= set(project.mapThemeCollection().mapThemes()))
+        from qgis.core import QgsLayoutExporter
+        image = QgsLayoutExporter.ImageExportSettings()
+        image.generateWorldFile = False
+        QgsLayoutExporter(layout).exportToImage(os.path.join(OUT, "схема границы СЗЗ.png"), image)
+        # точек больше, чем в три столбца, — таблицы на листе нет, примечание отсылает к Word
+        from szz_parcels import mapmaker
+        many = mapmaker.build_layout(project, "т", "п", points[0].extent(), [(points[0], None)],
+                                     points[0].crs(), name="много точек",
+                                     table=("Каталог", [(n, 1.0, 2.0) for n in range(1, 301)]))
+        self.assertFalse([m for m in many.multiFrames() if isinstance(m, QgsLayoutItemManualTable)])
+        self.assertTrue(any("каталог координат в реестре Word" in getattr(i, "text", lambda: "")()
+                            for i in many.items()))
+        mid = mapmaker.build_layout(project, "т", "п", points[0].extent(), [(points[0], None)],
+                                    points[0].crs(), name="средне точек",
+                                    table=("Каталог", [(n, 1.0, 2.0) for n in range(1, 61)]))
+        self.assertGreater([m for m in mid.multiFrames() if isinstance(m, QgsLayoutItemManualTable)][0]
+                           .frameCount(), 1)
 
     def test_map_off(self):
         dialog = self.open()
@@ -1812,7 +1928,8 @@ class PluginTest(unittest.TestCase):
         dialog._run()
         self.wait()
         self.assertEqual(sorted(os.listdir(folder)),
-                         ["Карта СЗЗ.pdf", "Реестр участков в СЗЗ.docx", "Реестр участков в СЗЗ.xlsx"])
+                         ["Карта СЗЗ.pdf", "Реестр участков в СЗЗ.docx", "Реестр участков в СЗЗ.xlsx",
+                          "Схема границы СЗЗ.pdf"])
         # путь, выбранный вручную, не подменяется при повторном открытии
         own = os.path.join(OUT, "свой.xlsx")
         dialog.xlsx.setFilePath(own)

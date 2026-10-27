@@ -182,6 +182,8 @@ CATEGORY_FIELDS = ["land_record_category_type", "category", "category_type", "к
                    "категория земель"]
 VRI_DOC_FIELDS = ["permitted_use_established_by_document", "permitted_doc", "util_by_doc", "vri_doc",
                   "ври по документу", "разрешенное использование по документу"]
+# адрес участка: readable_address — НСПД, address — импорт КПТ
+ADDRESS_FIELDS = ["readable_address", "address", "адрес", "местоположение", "адрес участка"]
 ZONE_NAME_FIELDS = ["name_by_doc", "name", "наименование", "название"]
 
 
@@ -211,13 +213,15 @@ def cad_sort_key(cad):
     return (0, [(0, int(p), "") if p.isdigit() else (1, 0, p) for p in re.split(r"(\d+)", cad) if p])
 
 
-CAD_NUMBER = re.compile(r"\d{1,2}:\d{1,2}:\d{6,7}:\d+")
+CAD_NUMBER = re.compile(r"(?<![\d:])(\d{1,2}):(\d{1,2}):(\d{1,7}):(\d+)")
 
 
 def cad_numbers(value):
-    """Кадастровые номера из строки («23:43:0000000:12, 23:43:0000000:13») по порядку, без повторов."""
+    """Кадастровые номера из строки («23:43:0000000:12, 23:43:0000000:13») по порядку, без повторов.
+    Номер, набранный без ведущих нулей («33:20:11703:117»), — в виде ЕГРН: «33:20:011703:117»."""
     result = []
-    for number in CAD_NUMBER.findall(value or ""):
+    for region, district, quarter, plot in CAD_NUMBER.findall(value or ""):
+        number = "{:0>2}:{:0>2}:{:0>6}:{}".format(region, district, quarter, plot)
         if number not in result:
             result.append(number)
     return result
