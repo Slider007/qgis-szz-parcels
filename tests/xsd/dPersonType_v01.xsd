@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:dPers1="urn://x-artefacts-rosreestr-ru/commons/directories/person-type/1.0.1" targetNamespace="urn://x-artefacts-rosreestr-ru/commons/directories/person-type/1.0.1" elementFormDefault="qualified">
+	<xs:simpleType name="dPersonType">
+		<xs:annotation>
+			<xs:documentation>Типы лиц, права которых ограничиваются и обременяются объекты недвижимости или в пользу которых установлены ограничения права и обременения объекта недвижимости</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="01">
+				<xs:annotation>
+					<xs:documentation>Арендатор</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="02">
+				<xs:annotation>
+					<xs:documentation>Арендодатель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="03">
+				<xs:annotation>
+					<xs:documentation>Выгодоприобретатель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="04">
+				<xs:annotation>
+					<xs:documentation>Залогодатель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="05">
+				<xs:annotation>
+					<xs:documentation>Залогодержатель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="06">
+				<xs:annotation>
+					<xs:documentation>Застройщик</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="07">
+				<xs:annotation>
+					<xs:documentation>Исполнитель работ</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="08">
+				<xs:annotation>
+					<xs:documentation>Лесопользователь</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="09">
+				<xs:annotation>
+					<xs:documentation>Лесхоз</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="10">
+				<xs:annotation>
+					<xs:documentation>Обременяемый</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="11">
+				<xs:annotation>
+					<xs:documentation>Одаряемый</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="12">
+				<xs:annotation>
+					<xs:documentation>Покупатель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="13">
+				<xs:annotation>
+					<xs:documentation>Правообладатель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="14">
+				<xs:annotation>
+					<xs:documentation>Правоприобретатель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="15">
+				<xs:annotation>
+					<xs:documentation>Продавец</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="16">
+				<xs:annotation>
+					<xs:documentation>Рентоплательщик</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="17">
+				<xs:annotation>
+					<xs:documentation>Рентополучатель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="18">
+				<xs:annotation>
+					<xs:documentation>Ссудодатель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="19">
+				<xs:annotation>
+					<xs:documentation>Ссудополучатель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="20">
+				<xs:annotation>
+					<xs:documentation>Субарендатор</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="21">
+				<xs:annotation>
+					<xs:documentation>Субарендодатель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="22">
+				<xs:annotation>
+					<xs:documentation>Участник долевого строительства</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="23">
+				<xs:annotation>
+					<xs:documentation>Наниматель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="24">
+				<xs:annotation>
+					<xs:documentation>Наймодатель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="25">
+				<xs:annotation>
+					<xs:documentation>Даритель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="26">
+				<xs:annotation>
+					<xs:documentation>Обременяющий</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="27">
+				<xs:annotation>
+					<xs:documentation>Учредитель доверительного управления</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="28">
+				<xs:annotation>
+					<xs:documentation>Доверительный управляющий</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="29">
+				<xs:annotation>
+					<xs:documentation>Пользователь</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="30">
+				<xs:annotation>
+					<xs:documentation>Участник долевого строительства, уступивший свои права</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="31">
+				<xs:annotation>
+					<xs:documentation>Должник</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="32">
+				<xs:annotation>
+					<xs:documentation>Собственник</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="33">
+				<xs:annotation>
+					<xs:documentation>Заявитель</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="99">
+				<xs:annotation>
+					<xs:documentation>Не определено</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+		</xs:restriction>
+	</xs:simpleType>
+</xs:schema>

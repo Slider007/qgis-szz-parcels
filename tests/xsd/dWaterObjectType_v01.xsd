@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:dWtr1="urn://x-artefacts-rosreestr-ru/commons/directories/water-object-type/1.0.1" targetNamespace="urn://x-artefacts-rosreestr-ru/commons/directories/water-object-type/1.0.1" elementFormDefault="qualified">
+	<xs:simpleType name="dWaterObjectType">
+		<xs:annotation>
+			<xs:documentation>Виды водных объектов</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="100">
+				<xs:annotation>
+					<xs:documentation>Моря или их отдельные части</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="101">
+				<xs:annotation>
+					<xs:documentation>Проливы</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="102">
+				<xs:annotation>
+					<xs:documentation>Заливы</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="103">
+				<xs:annotation>
+					<xs:documentation>Бухты</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="104">
+				<xs:annotation>
+					<xs:documentation>Лиманы</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="105">
+				<xs:annotation>
+					<xs:documentation>Иные</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="200">
+				<xs:annotation>
+					<xs:documentation>Водотоки</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="201">
+				<xs:annotation>
+					<xs:documentation>Реки</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="202">
+				<xs:annotation>
+					<xs:documentation>Ручьи</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="203">
+				<xs:annotation>
+					<xs:documentation>Каналы</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="300">
+				<xs:annotation>
+					<xs:documentation>Водоемы</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="301">
+				<xs:annotation>
+					<xs:documentation>Озера</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="302">
+				<xs:annotation>
+					<xs:documentation>Пруды</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="303">
+				<xs:annotation>
+					<xs:documentation>Обводненные карьеры</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="304">
+				<xs:annotation>
+					<xs:documentation>Водохранилища</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="400">
+				<xs:annotation>
+					<xs:documentation>Болота</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="500">
+				<xs:annotation>
+					<xs:documentation>Природные выходы подземных вод</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="501">
+				<xs:annotation>
+					<xs:documentation>Родники</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="502">
+				<xs:annotation>
+					<xs:documentation>Гейзеры</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="600">
+				<xs:annotation>
+					<xs:documentation>Ледники</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="700">
+				<xs:annotation>
+					<xs:documentation>Снежники</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+		</xs:restriction>
+	</xs:simpleType>
+</xs:schema>

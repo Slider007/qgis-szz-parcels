@@ -14,6 +14,7 @@ from qgis.core import (
     QgsFillSymbol,
     QgsLayoutExporter,
     QgsMapLayerLegendUtils,
+    QgsMapLayerType,
     QgsLayoutItemLabel,
     QgsLayoutItemLegend,
     QgsLayoutItemMap,
@@ -34,6 +35,7 @@ from qgis.PyQt.QtGui import QColor, QFont
 from qgis.PyQt.QtXml import QDomDocument
 
 LAYOUT_NAME = "Карта СЗЗ"
+ZONING_LAYOUT = "Карта градостроительного зонирования"
 TEMPLATE = os.path.join(os.path.dirname(__file__), "templates", "forma_3.qpt")
 PAGE_W, PAGE_H = 420.0, 297.0  # A3 альбомный, мм
 FRAME_LEFT, FRAME = 20.0, 5.0  # поля рамки ГОСТ 2.301
@@ -181,17 +183,57 @@ def _set_label(items, key, text, size=None):
         item.setTextFormat(fmt)
 
 
-def build_layout(project, title, subtitle, extent, legend_layers, crs=None, object_name=""):
-    """Новый макет «Карта СЗЗ» в рамке ГОСТ (прежний с тем же именем заменяется).
-    legend_layers — [(слой, подпись в легенде или None — имя слоя)]."""
+def style_terr_zones(layer, field="name_by_doc"):
+    """Территориальные зоны: цвет по названию зоны (полупрозрачно), подпись — индекс зоны
+    в скобках («Ж-1»), если он есть, иначе название."""
+    from qgis.core import QgsCategorizedSymbolRenderer, QgsRendererCategory
+    index = layer.fields().indexOf(field)
+    if index < 0:
+        _outline(layer, "120,60,160", 0.5, fill="200,170,230,90")
+        return
+    palette = ("230,159,0", "86,180,233", "0,158,115", "240,228,66", "0,114,178", "213,94,0",
+               "204,121,167", "153,153,153", "117,112,179", "166,216,84")
+    categories = []
+    for n, value in enumerate(sorted(v for v in layer.uniqueValues(index) if v)):
+        symbol = QgsFillSymbol.createSimple({"color": palette[n % len(palette)] + ",110",
+                                             "outline_color": "80,80,80", "outline_width": "0.3"})
+        categories.append(QgsRendererCategory(value, symbol, str(value)))
+    layer.setRenderer(QgsCategorizedSymbolRenderer(field, categories))
+    settings = QgsPalLayerSettings()
+    settings.isExpression = True
+    settings.fieldName = ("coalesce(nullif(regexp_substr(\"{0}\", '\\\\(([^()]+)\\\\)\\\\s*$'), ''), \"{0}\")"
+                          .format(field))
+    text = QgsTextFormat()
+    font = QFont()
+    font.setPointSizeF(8)
+    font.setBold(True)
+    text.setFont(font)
+    text.setSize(8)
+    buffer = QgsTextBufferSettings()
+    buffer.setEnabled(True)
+    buffer.setSize(0.8)
+    buffer.setColor(QColor(255, 255, 255))
+    text.setBuffer(buffer)
+    settings.setFormat(text)
+    layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
+    layer.setLabelsEnabled(True)
+    layer.triggerRepaint()
+
+
+def build_layout(project, title, subtitle, extent, legend_layers, crs=None, object_name="",
+                 name=LAYOUT_NAME, hidden=None):
+    """Новый макет name в рамке ГОСТ (прежний с тем же именем заменяется).
+    legend_layers — [(слой, подпись в легенде или None — имя слоя)]. hidden — слои, которых на
+    этой карте не должно быть (карта зонирования без участков): тогда набор слоёв карты
+    закрепляется — включённые в проекте без hidden, плюс слои легенды."""
     manager = project.layoutManager()
-    old = manager.layoutByName(LAYOUT_NAME)
+    old = manager.layoutByName(name)
     if old is not None:
         manager.removeLayout(old)
     layout = QgsPrintLayout(project)
     layout.initializeDefaults()
     named, loaded = _template_items(layout)
-    layout.setName(LAYOUT_NAME)
+    layout.setName(name)
     layout.pageCollection().page(0).setPageSize(QgsLayoutSize(PAGE_W, PAGE_H, MM))
     for item in loaded:  # легенда шаблона — все слои проекта: ставим свою
         if isinstance(item, QgsLayoutItemLegend):
@@ -203,6 +245,13 @@ def build_layout(project, title, subtitle, extent, legend_layers, crs=None, obje
         item.grids().removeGrid(grid.id())
     item.setFollowVisibilityPreset(False)
     item.setKeepLayerSet(False)
+    if hidden is not None:
+        wanted = [l for l, _ in legend_layers if l is not None]
+        # из проекта — только подложка (растры, плитки): векторные слои с участками закрыли бы зоны
+        shown = [l for l in project.layerTreeRoot().checkedLayers()
+                 if l not in hidden and l not in wanted and l.type() == QgsMapLayerType.RasterLayer]
+        item.setLayers(wanted + shown)  # сверху вниз: зоны и границы над подложкой
+        item.setKeepLayerSet(True)
     item.setCrs(crs if crs is not None and crs.isValid() else project.crs())
     item.attemptMove(QgsLayoutPoint(FRAME_LEFT, FRAME, MM))
     item.attemptResize(QgsLayoutSize(FIELD_W, STAMP_TOP - FRAME, MM))
@@ -257,6 +306,14 @@ def build_layout(project, title, subtitle, extent, legend_layers, crs=None, obje
     scale.setLinkedMap(item)
     scale.setStyle("Single Box")
     scale.applyDefaultSize(Qgis.DistanceUnit.Meters)
+    # по умолчанию линейка до 150 мм — подпись правого конца заезжала на штамп:
+    # два деления круглой длины, около 20 мм каждое
+    step = item.scale() * 0.02  # метров в 20 мм
+    nice = max(v * 10 ** k for k in range(-1, 7) for v in (1, 2, 2.5, 5) if v * 10 ** k <= step * 1.25)
+    scale.setSegmentSizeMode(Qgis.ScaleBarSegmentSizeMode.Fixed)
+    scale.setUnitsPerSegment(nice)
+    scale.setNumberOfSegments(2)
+    scale.setNumberOfSegmentsLeft(0)
     scale.setUnitLabel("м")
     scale.setBackgroundEnabled(False)
     scale.attemptMove(QgsLayoutPoint(side_x, STAMP_TOP + 3, MM))

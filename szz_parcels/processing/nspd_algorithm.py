@@ -26,6 +26,7 @@ WEB_MERCATOR = QgsCoordinateReferenceSystem("EPSG:3857")
 
 class NspdParcelsAlgorithm(SzzRegistryAlgorithm):
     OUTPUT = "OUTPUT"
+    TERR_OUT = "TERR_OUT"
 
     def createInstance(self):
         return NspdParcelsAlgorithm()
@@ -60,6 +61,9 @@ class NspdParcelsAlgorithm(SzzRegistryAlgorithm):
             100.0, self.ENTERPRISE, False, 0.0))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Участки НСПД"), Qgis.ProcessingSourceType.VectorPolygon))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.TERR_OUT, self.tr("Территориальные зоны (ПЗЗ) НСПД"),
+            Qgis.ProcessingSourceType.VectorPolygon, optional=True, createByDefault=False))
 
     def processAlgorithm(self, parameters, context, feedback):
         context.setInvalidGeometryCheck(Qgis.InvalidGeometryCheck.NoCheck)
@@ -93,10 +97,23 @@ class NspdParcelsAlgorithm(SzzRegistryAlgorithm):
             out_crs = work_crs
         dest_id = self._write(found, parameters, context, out_crs)
         feedback.pushInfo(self.tr("Загружено участков: {}").format(len(found)))
+        result = {self.OUTPUT: dest_id, "COUNT": len(found)}
+        if parameters.get(self.TERR_OUT):
+            # территориальные зоны ПЗЗ — тем же запросом другой категории; не вышло — участки
+            # всё равно отдаются (ПЗЗ внесены в ЕГРН не везде)
+            try:
+                zones = nspd.parcels(nspd.fetch(area, feedback, category=nspd.TERR_ZONES))
+            except nspd.NspdError as e:
+                feedback.pushWarning(self.tr("Территориальные зоны не загружены: {}").format(e))
+                zones = None
+            if zones is not None:
+                result[self.TERR_OUT] = self._write(zones, parameters, context, out_crs, self.TERR_OUT)
+                result["TERR_COUNT"] = len(zones)
+                feedback.pushInfo(self.tr("Территориальных зон: {}").format(len(zones)))
         feedback.setProgress(100)
-        return {self.OUTPUT: dest_id, "COUNT": len(found)}
+        return result
 
-    def _write(self, found, parameters, context, out_crs):
+    def _write(self, found, parameters, context, out_crs, output=None):
         """Участки из ответа НСПД (EPSG:3857) — в слой OUTPUT в out_crs с полями карточки."""
         keys = []
         for _, _, options in found:
@@ -105,10 +122,11 @@ class NspdParcelsAlgorithm(SzzRegistryAlgorithm):
         fields.append(QgsField("interactionId", QMetaType.Type.LongLong))
         for key in keys:
             fields.append(QgsField(key, QMetaType.Type.QString))
-        sink, dest_id = self.parameterAsSink(parameters, self.OUTPUT, context, fields,
+        output = output or self.OUTPUT
+        sink, dest_id = self.parameterAsSink(parameters, output, context, fields,
                                              Qgis.WkbType.MultiPolygon, out_crs)
         if sink is None:
-            raise QgsProcessingException(self.invalidSinkError(parameters, self.OUTPUT))
+            raise QgsProcessingException(self.invalidSinkError(parameters, output))
         to_out = QgsCoordinateTransform(WEB_MERCATOR, out_crs, context.transformContext())
         for interaction_id, shape, options in found:
             shape = QgsGeometry(shape)

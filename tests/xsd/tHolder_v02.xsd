@@ -1,0 +1,403 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:h2="urn://x-artefacts-rosreestr-ru/commons/complex-types/holder/2.0.1" xmlns:dCount1="urn://x-artefacts-rosreestr-ru/commons/directories/countries/1.0.1" xmlns:SimAll1="urn://x-artefacts-rosreestr-ru/commons/simple-types-all/1.0" xmlns:RLaw1="urn://x-artefacts-rosreestr-ru/commons/complex-types/resolution-requisites-law/1.0.1" xmlns:dIndv1="urn://x-artefacts-rosreestr-ru/commons/directories/individuals/1.0.1" xmlns:dSubjRel1="urn://x-artefacts-rosreestr-ru/commons/directories/subject-legal-relations/1.0.1" xmlns:dRF3="urn://x-artefacts-rosreestr-ru/commons/directories/regions/3.0.1" targetNamespace="urn://x-artefacts-rosreestr-ru/commons/complex-types/holder/2.0.1" elementFormDefault="qualified">
+	<xsd:import namespace="urn://x-artefacts-rosreestr-ru/commons/simple-types-all/1.0" schemaLocation="P_CommonSimpleTypeAll_v01.xsd"/>
+	<xsd:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/countries/1.0.1" schemaLocation="dCountries_v01.xsd"/>
+	<xsd:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/individuals/1.0.1" schemaLocation="dIndividuals_v01.xsd"/>
+	<xsd:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/subject-legal-relations/1.0.1" schemaLocation="dSubjectLegalRelations_v01.xsd"/>
+	<xsd:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/regions/3.0.1" schemaLocation="dRegionsRF_v03.xsd"/>
+	<xsd:import namespace="urn://x-artefacts-rosreestr-ru/commons/complex-types/resolution-requisites-law/1.0.1" schemaLocation="tResolutionRequisitesLaw_v01.xsd"/>
+	<!--===Описание лица-->
+	<xsd:complexType name="Holder">
+		<xsd:annotation>
+			<xsd:documentation>Сведения о лице</xsd:documentation>
+		</xsd:annotation>
+		<xsd:choice>
+			<xsd:element name="individual" type="h2:Individual">
+				<xsd:annotation>
+					<xsd:documentation>Физическое лицо</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="public_formation" type="h2:PublicFormation">
+				<xsd:annotation>
+					<xsd:documentation>Публично-правовое образование</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="legal_entity" type="h2:LegalEntity">
+				<xsd:annotation>
+					<xsd:documentation>Юридическое лицо, орган власти</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="other" type="h2:OtherSubject">
+				<xsd:annotation>
+					<xsd:documentation>Иной субъект</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:choice>
+	</xsd:complexType>
+	<xsd:complexType name="HolderIndividualEntity">
+		<xsd:annotation>
+			<xsd:documentation>Сведения о физическом, юридическом лице</xsd:documentation>
+		</xsd:annotation>
+		<xsd:choice>
+			<xsd:element name="individual" type="h2:Individual">
+				<xsd:annotation>
+					<xsd:documentation>Физическое лицо</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="legal_entity" type="h2:HolderEntity">
+				<xsd:annotation>
+					<xsd:documentation>Юридическое лицо</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:choice>
+	</xsd:complexType>
+	<xsd:complexType name="Individual">
+		<xsd:annotation>
+			<xsd:documentation>Фамилия, Имя, Отчество, дата и место рождения физического лица, СНИЛС</xsd:documentation>
+		</xsd:annotation>
+		<xsd:sequence>
+			<xsd:element name="individual_type" type="dIndv1:dIndividuals">
+				<xsd:annotation>
+					<xsd:documentation>Тип физического лица</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="surname" type="SimAll1:s100">
+				<xsd:annotation>
+					<xsd:documentation>Фамилия</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="name" type="SimAll1:s100">
+				<xsd:annotation>
+					<xsd:documentation>Имя</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="patronymic" type="SimAll1:s100" minOccurs="0">
+				<xsd:annotation>
+					<xsd:documentation>Отчество</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="birth_date" type="xsd:date">
+				<xsd:annotation>
+					<xsd:documentation>Дата рождения</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="birth_place" type="SimAll1:s255">
+				<xsd:annotation>
+					<xsd:documentation>Место рождения</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="snils" type="SimAll1:SSNILS" minOccurs="0">
+				<xsd:annotation>
+					<xsd:documentation>Страховой номер индивидуального лицевого счета в системе обязательного пенсионного страхования</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="citizenship" type="h2:Citizenship">
+				<xsd:annotation>
+					<xsd:documentation source="http://esunsi.at-consulting.ru:8000/catalogs/62/items">Гражданство</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="identity_doc" type="RLaw1:DocumentRequisitesNotary">
+				<xsd:annotation>
+					<xsd:documentation>Реквизиты документа, удостоверяющего личность</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="contacts" type="h2:Contacts">
+				<xsd:annotation>
+					<xsd:documentation>Контактная информация</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:sequence>
+	</xsd:complexType>
+	<xsd:complexType name="HolderEntity">
+		<xsd:annotation>
+			<xsd:documentation>Юридическое лицо</xsd:documentation>
+		</xsd:annotation>
+		<xsd:sequence>
+			<xsd:element name="type" type="dSubjRel1:dSubjectLegalRelations">
+				<xsd:annotation>
+					<xsd:documentation source="http://10.128.21.10/catalogs/58/items">Тип юридического лица</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="entity" type="h2:Entity">
+				<xsd:annotation>
+					<xsd:documentation>Сведения о юридическом лице</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="contacts" type="h2:Contacts">
+				<xsd:annotation>
+					<xsd:documentation>Контактная информация</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:sequence>
+	</xsd:complexType>
+	<xsd:complexType name="Entity">
+		<xsd:annotation>
+			<xsd:documentation>Юридическое лицо</xsd:documentation>
+		</xsd:annotation>
+		<xsd:choice>
+			<xsd:element name="resident" type="h2:GovementResident">
+				<xsd:annotation>
+					<xsd:documentation>Российское юридическое лицо, в том числе международная организация, созданная на территории РФ</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="not_resident" type="h2:NotResident">
+				<xsd:annotation>
+					<xsd:documentation>Иностранное юридическое лицо, в том числе международная организация, созданная на территории иностранного государства</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:choice>
+	</xsd:complexType>
+	<xsd:complexType name="LegalEntity">
+		<xsd:annotation>
+			<xsd:documentation>Юридическое лицо, орган власти</xsd:documentation>
+		</xsd:annotation>
+		<xsd:sequence>
+			<xsd:element name="type" type="dSubjRel1:dSubjectLegalRelations">
+				<xsd:annotation>
+					<xsd:documentation source="http://10.128.21.10/catalogs/58/items">Тип юридического лица, органа власти</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="entity_govement" type="h2:EntityGovement">
+				<xsd:annotation>
+					<xsd:documentation>Сведения о юридическом лице, органе власти</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="contacts" type="h2:Contacts">
+				<xsd:annotation>
+					<xsd:documentation>Контактная информация</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:sequence>
+	</xsd:complexType>
+	<xsd:complexType name="NotResident">
+		<xsd:annotation>
+			<xsd:documentation>Иностранное юридическое лицо</xsd:documentation>
+		</xsd:annotation>
+		<xsd:sequence>
+			<xsd:element name="full_name" type="SimAll1:s500">
+				<xsd:annotation>
+					<xsd:documentation>Полное наименование</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="incorporate_country" type="dCount1:dCountries">
+				<xsd:annotation>
+					<xsd:documentation source="http://10.128.21.10/catalogs/62/items">Страна регистрации (инкорпорации)</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="registration_number" type="SimAll1:s50">
+				<xsd:annotation>
+					<xsd:documentation>Регистрационный номер</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="date_state_reg" type="xsd:date">
+				<xsd:annotation>
+					<xsd:documentation>Дата регистрации</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="registration_organ" type="SimAll1:s255">
+				<xsd:annotation>
+					<xsd:documentation>Наименование регистрирующего органа</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="reg_address_subject" type="SimAll1:s4000">
+				<xsd:annotation>
+					<xsd:documentation>Адрес (местонахождение) в стране регистрации (инкорпорации)</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="inn" type="SimAll1:LegalPersonINNType" minOccurs="0">
+				<xsd:annotation>
+					<xsd:documentation>ИНН</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:sequence>
+	</xsd:complexType>
+	<xsd:complexType name="GovementResident">
+		<xsd:annotation>
+			<xsd:documentation>Сведения о лице (полное наименование, ИНН, ОГРН)</xsd:documentation>
+		</xsd:annotation>
+		<xsd:sequence>
+			<xsd:element name="full_name" type="SimAll1:s500">
+				<xsd:annotation>
+					<xsd:documentation>Полное наименование</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="inn" type="SimAll1:LegalPersonINNType" minOccurs="0">
+				<xsd:annotation>
+					<xsd:documentation>ИНН</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="ogrn" type="SimAll1:OGRNCompanyType" minOccurs="0">
+				<xsd:annotation>
+					<xsd:documentation>ОГРН</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:sequence>
+	</xsd:complexType>
+	<xsd:complexType name="PublicFormation">
+		<xsd:annotation>
+			<xsd:documentation>Публично-правовое образование</xsd:documentation>
+		</xsd:annotation>
+		<xsd:choice>
+			<xsd:element name="foreign_public" type="dCount1:dCountries">
+				<xsd:annotation>
+					<xsd:documentation>Иностранное государство</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="union_state" type="xsd:string">
+				<xsd:annotation>
+					<xsd:documentation>Союзное государство</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="russia">
+				<xsd:annotation>
+					<xsd:documentation>Российская Федерация</xsd:documentation>
+				</xsd:annotation>
+				<xsd:simpleType>
+					<xsd:restriction base="xsd:string">
+						<xsd:pattern value="Российская Федерация"/>
+					</xsd:restriction>
+				</xsd:simpleType>
+			</xsd:element>
+			<xsd:element name="subject_of_rf" type="dRF3:dRegionsRF">
+				<xsd:annotation>
+					<xsd:documentation>Субъект Российской Федерации</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="municipality" type="xsd:string">
+				<xsd:annotation>
+					<xsd:documentation>Муниципальное образование</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:choice>
+	</xsd:complexType>
+	<xsd:complexType name="EntityGovement">
+		<xsd:annotation>
+			<xsd:documentation>Юридическое лицо, орган власти</xsd:documentation>
+		</xsd:annotation>
+		<xsd:choice>
+			<xsd:element name="resident" type="h2:GovementResident">
+				<xsd:annotation>
+					<xsd:documentation>Российское юридическое лицо, в том числе международная организация, созданная на территории РФ</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="govement_entity" type="h2:GovementResident">
+				<xsd:annotation>
+					<xsd:documentation>Орган государственной власти, орган местного самоуправления, иной государственный орган</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="not_resident" type="h2:NotResident">
+				<xsd:annotation>
+					<xsd:documentation>Иностранное юридическое лицо, в том числе международная организация, созданная на территории иностранного государства</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:choice>
+	</xsd:complexType>
+	<xsd:complexType name="OtherSubject">
+		<xsd:annotation>
+			<xsd:documentation>Иной субъект</xsd:documentation>
+		</xsd:annotation>
+		<xsd:sequence>
+			<xsd:element name="name" type="SimAll1:s500">
+				<xsd:annotation>
+					<xsd:documentation>Наименование</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="short_name" type="xsd:string" minOccurs="0">
+				<xsd:annotation>
+					<xsd:documentation>Краткое наименование</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="registration_organ" type="xsd:string" minOccurs="0">
+				<xsd:annotation>
+					<xsd:documentation>Регистрирующий орган</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="contacts" type="h2:Contacts" minOccurs="0">
+				<xsd:annotation>
+					<xsd:documentation>Контактная информация</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:sequence>
+	</xsd:complexType>
+	<xsd:complexType name="Contacts">
+		<xsd:annotation>
+			<xsd:documentation>Контактная информация</xsd:documentation>
+		</xsd:annotation>
+		<xsd:sequence>
+			<xsd:element name="email" type="SimAll1:EmailAddressType" minOccurs="0">
+				<xsd:annotation>
+					<xsd:documentation>Адрес электронной почты</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="mailing_addess" type="SimAll1:sNe4000" minOccurs="0">
+				<xsd:annotation>
+					<xsd:documentation>Почтовый адрес</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:sequence>
+	</xsd:complexType>
+	<!--===Гражданство-->
+	<xsd:complexType name="Citizenship">
+		<xsd:annotation>
+			<xsd:documentation>Гражданство</xsd:documentation>
+		</xsd:annotation>
+		<xsd:choice>
+			<xsd:element name="person_citizenship_country" type="h2:CountriesDict">
+				<xsd:annotation>
+					<xsd:documentation>Страна гражданства</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="no_citizenship_person">
+				<xsd:annotation>
+					<xsd:documentation>Лицо без гражданства</xsd:documentation>
+				</xsd:annotation>
+				<xsd:simpleType>
+					<xsd:restriction base="xsd:string">
+						<xsd:pattern value="лицо без гражданства"/>
+					</xsd:restriction>
+				</xsd:simpleType>
+			</xsd:element>
+		</xsd:choice>
+	</xsd:complexType>
+	<xsd:complexType name="CountriesDict">
+		<xsd:annotation>
+			<xsd:documentation>Страна гражданства</xsd:documentation>
+		</xsd:annotation>
+		<xsd:sequence>
+			<xsd:element name="code" type="dCount1:dCountries" minOccurs="0">
+				<xsd:annotation>
+					<xsd:documentation>Код по классификатору стран мира</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+			<xsd:element name="value" type="xsd:string">
+				<xsd:annotation>
+					<xsd:documentation>Наименование страны гражданства</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:sequence>
+	</xsd:complexType>
+	<xsd:complexType name="PersonCitizenshipCountry">
+		<xsd:annotation>
+			<xsd:documentation source="http://10.128.21.10/catalogs/62/items">Страна гражданства</xsd:documentation>
+		</xsd:annotation>
+		<xsd:sequence>
+			<xsd:element name="citizenship_country" type="h2:CountriesDict">
+				<xsd:annotation>
+					<xsd:documentation>Страна гражданства</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:sequence>
+	</xsd:complexType>
+	<xsd:complexType name="NoCitizenshipPerson">
+		<xsd:annotation>
+			<xsd:documentation>Лицо без гражданства</xsd:documentation>
+		</xsd:annotation>
+		<xsd:sequence>
+			<xsd:element name="no_citizenship" type="xsd:string">
+				<xsd:annotation>
+					<xsd:documentation>Без гражданства</xsd:documentation>
+				</xsd:annotation>
+			</xsd:element>
+		</xsd:sequence>
+	</xsd:complexType>
+</xsd:schema>

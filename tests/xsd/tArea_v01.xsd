@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:Are1="urn://x-artefacts-rosreestr-ru/commons/complex-types/area/1.0.1" xmlns:SimAll1="urn://x-artefacts-rosreestr-ru/commons/simple-types-all/1.0" targetNamespace="urn://x-artefacts-rosreestr-ru/commons/complex-types/area/1.0.1" elementFormDefault="qualified">
+	<!--ПРОСТЫЕ ТИПЫ ДАННЫХ:-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/simple-types-all/1.0" schemaLocation="P_CommonSimpleTypeAll_v01.xsd"/>
+	<!--=====ВЕРСИЯ 1:-->
+	<!--Подсхема ПЛОЩАДЬ-->
+	<xs:complexType name="LandAreaType">
+		<xs:annotation>
+			<xs:documentation>Значение площади</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="value" type="SimAll1:d20_2">
+				<xs:annotation>
+					<xs:documentation>Значение площади в квадратных метрах</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="inaccuracy" type="SimAll1:d20_2" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Погрешность</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="AreaMeter">
+		<xs:annotation>
+			<xs:documentation>Площадь в кв. метрах (с округлением до 1 кв. метра)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="value" type="SimAll1:p20">
+				<xs:annotation>
+					<xs:documentation>Значение площади в квадратных метрах</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="inaccuracy" type="SimAll1:d20_2">
+				<xs:annotation>
+					<xs:documentation>Погрешность определения площади</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="AreaHectare">
+		<xs:annotation>
+			<xs:documentation>Площадь в гектарах (с округлением до 0,01 гектара)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="value" type="SimAll1:d20_2">
+				<xs:annotation>
+					<xs:documentation>Значение площади в гектарах</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="inaccuracy" type="SimAll1:d10_2">
+				<xs:annotation>
+					<xs:documentation>Погрешность определения площади</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+</xs:schema>

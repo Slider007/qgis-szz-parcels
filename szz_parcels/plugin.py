@@ -145,7 +145,8 @@ class SzzParcelsPlugin:
             self.dialog.update_nspd_button()
         return running
 
-    def _make_map(self, params, layers, zone, from_enterprise, distance, path, szz_size=None):
+    def _make_map(self, params, layers, zone, from_enterprise, distance, path, szz_size=None,
+                  width=0):
         """Макет «Карта СЗЗ» и PDF. True — PDF записан."""
         project = QgsProject.instance()
 
@@ -155,15 +156,15 @@ class SzzParcelsPlugin:
             return project.mapLayer(value) if isinstance(value, str) else None
 
         enterprise = layer_of(params.get("ENTERPRISE"))
-        szz = layer_of(params.get("SZZ")) or szz_size
+        szz = szz_size or layer_of(params.get("SZZ"))  # сглаженная — вместо исходной
         crs = project.crs() if project.crs().isValid() else zone.crs()
         extent = QgsCoordinateTransform(zone.crs(), crs, project).transformBoundingBox(zone.extent())
         extent.grow(0.05 * max(extent.width(), extent.height()))
         title = "Схема расположения земельных участков в санитарно-защитной зоне"
-        width = params.get("SZZ_WIDTH") if szz_size is not None else 0
         subtitle = ("СЗЗ совпадает с границей предприятия; " if from_enterprise else
                     "СЗЗ — {:g} м от границы предприятия; ".format(width) if width else "") + \
             "участки в границах СЗЗ и за её границей на расстоянии до {:g} м".format(distance)
+        self.zoning_pdf = None
         layout = mapmaker.build_layout(
             project, title, subtitle, extent,
             [(enterprise, "Граница предприятия"), (szz, "Санитарно-защитная зона")]
@@ -173,7 +174,21 @@ class SzzParcelsPlugin:
             os.makedirs(os.path.dirname(path), exist_ok=True)
         except OSError:
             return False
-        return mapmaker.export_pdf(layout, path)
+        if not mapmaker.export_pdf(layout, path):
+            return False
+        # карта градостроительного зонирования — тот же охват и рамка, зоны ПЗЗ вместо участков
+        terr = layer_of(params.get("TERR_ZONES"))
+        if terr is not None:
+            folder, stem = os.path.split(path)
+            zoning = os.path.join(folder, stem.replace("Карта СЗЗ", "Карта градостроительного зонирования"))
+            layout = mapmaker.build_layout(
+                project, "Карта градостроительного зонирования (территориальные зоны по ЕГРН)",
+                subtitle, extent, [(terr, None), (enterprise, "Граница предприятия"),
+                                   (szz, "Санитарно-защитная зона"), (zone, None)],
+                crs, params.get("OBJECT", ""), mapmaker.ZONING_LAYOUT,
+                hidden=layers + [layer_of(params.get("PARCELS"))])  # без участков — зоны видны
+            self.zoning_pdf = zoning if mapmaker.export_pdf(layout, zoning) else None
+        return True
 
     def nspd_finished(self, ok, results):
         running = self._take_running()
@@ -201,6 +216,16 @@ class SzzParcelsPlugin:
         project = QgsProject.instance()
         project.addMapLayer(layer, False)
         project.layerTreeRoot().insertLayer(0, layer)
+        terr_path = results.get("TERR_OUT")
+        terr = QgsVectorLayer(terr_path, os.path.splitext(os.path.basename(terr_path))[0], "ogr") \
+            if terr_path else None
+        if terr is not None and terr.isValid() and terr.featureCount():
+            mapmaker.style_terr_zones(terr)
+            project.addMapLayer(terr, False)
+            node = project.layerTreeRoot().insertLayer(1, terr)
+            node.setItemVisibilityChecked(False)  # под участками не видно — включается для карты ПЗЗ
+            if self.dialog is not None:
+                self.dialog.terr_zones.setLayer(terr)
         count = results.get("COUNT", layer.featureCount())
         if self.dialog is not None:
             self.dialog.parcels.setLayer(layer)
@@ -208,9 +233,14 @@ class SzzParcelsPlugin:
             self.message("НСПД не нашёл в зоне поиска участков с границами. Увеличьте расстояние "
                          "поиска или проверьте границу предприятия.", Qgis.MessageLevel.Warning, 0)
             return
+        zones_text = ""
+        if terr_path:
+            zones_text = (" Территориальных зон (ПЗЗ): {}.".format(results.get("TERR_COUNT", 0))
+                          if results.get("TERR_COUNT") else
+                          " Территориальных зон в ЕГРН здесь нет (ПЗЗ внесены не везде).")
         self.message("Загружено участков с НСПД: {} — слой «{}», файл в папке «{}». Он уже выбран "
-                     "слоем участков. Сведения кадастровой карты справочные и не заменяют выписку "
-                     "из ЕГРН.".format(count, name, os.path.basename(os.path.dirname(path))),
+                     "слоем участков.{} Сведения кадастровой карты справочные и не заменяют выписку "
+                     "из ЕГРН.".format(count, name, os.path.basename(os.path.dirname(path)), zones_text),
                      Qgis.MessageLevel.Success, 15)
 
     def enterprise_finished(self, ok, results):
@@ -318,7 +348,8 @@ class SzzParcelsPlugin:
             layers.append(normed)
         szz_size = context.takeResultLayer(results["SZZ_OUT"]) if results.get("SZZ_OUT") else None
         if szz_size is not None:
-            szz_size.setName("СЗЗ {:g} м от границы предприятия".format(params.get("SZZ_WIDTH", 0)))
+            szz_size.setName("СЗЗ {}{:g} м от границы предприятия".format(
+                "сглаженная, " if results.get("SMOOTHED") else "", results.get("SZZ_SIZE", 0)))
             szz_size.setCustomProperty("szz_parcels/result", True)
             mapmaker.style_szz(szz_size)
             project.addMapLayer(szz_size, False)
@@ -340,12 +371,18 @@ class SzzParcelsPlugin:
             text += " Файлы: {} — в папке «{}».".format(
                 ", ".join("«{}»".format(os.path.basename(f)) for f in files),
                 os.path.basename(os.path.dirname(files[0])))
+        if results.get("ZOUIT_XML"):
+            text += " XML для ЕГРН: «{}».".format(os.path.basename(results["ZOUIT_XML"]))
         map_pdf = params.get("MAP_PDF")
         if map_pdf and zone is not None:
             if self._make_map(params, layers + ([points] if points is not None else []),
-                              zone, from_enterprise, distance, map_pdf, szz_size):
+                              zone, from_enterprise, distance, map_pdf, szz_size,
+                              results.get("SZZ_SIZE", 0)):
                 files.append(map_pdf)
                 text += " Карта: «{}».".format(os.path.basename(map_pdf))
+                if getattr(self, "zoning_pdf", None):
+                    files.append(self.zoning_pdf)
+                    self.zoning_pdf = None
             else:
                 feedback.warnings.append(
                     "Карту «{}» записать не удалось: файл, похоже, открыт или папка недоступна. "

@@ -73,6 +73,53 @@ def _center(geometry):
     return None
 
 
+SZZ_POINTS = 20  # точек на контуре СЗЗ по умолчанию (пользователь, 2026-10-27: «15–20»)
+
+
+def vertex_count(geometry):
+    """Число поворотных точек полигона (без замыкающих)."""
+    polygons = geometry.asMultiPolygon() if geometry.isMultipart() else [geometry.asPolygon()]
+    return sum(max(len(ring) - 1, 0) for polygon in polygons for ring in polygon)
+
+
+def round_zone(enterprise, width, points=SZZ_POINTS):
+    """СЗЗ — граница предприятия + width м, углы скруглены дугой, всего около points точек.
+
+    Дуга с малым числом точек — ломаная: её хорды ставятся снаружи настоящей дуги, чтобы
+    СЗЗ нигде не была меньше width. Подбирается допуск t: буфер на width + t, упрощённый
+    Дугласом — Пейкером с допуском t (отступ внутрь не больше t), — самый точный, у которого
+    точек не больше points. points = 0 — без ограничения (гладкий буфер)."""
+    exact = enterprise.buffer(width, 32)
+    if points <= 0 or vertex_count(exact) <= points:
+        return exact
+    low, high = 0.0, width
+    best = None
+    for _ in range(40):
+        t = (low + high) / 2
+        # +2 см: хорды самого буфера и округление координат до 0,01 м — тоже внутрь
+        shape = enterprise.buffer(width + t + 0.02, 32).simplify(t)
+        if not shape.isEmpty() and vertex_count(shape) <= points:
+            best, high = shape, t
+        else:
+            low = t
+    if best is None:  # точек меньше, чем углов у предприятия, — сколько вышло при допуске = width
+        best = enterprise.buffer(2 * width, 32).simplify(width)
+    return best.makeValid() if not best.isGeosValid() else best
+
+
+def zone_width(enterprise, zone):
+    """(наименьший, наибольший) отступ СЗЗ от предприятия по серединам сторон контура СЗЗ.
+    Для «квадратной» СЗЗ они равны; разные — СЗЗ неравномерная (по румбам)."""
+    polygons = zone.asMultiPolygon() if zone.isMultipart() else [zone.asPolygon()]
+    sizes = []
+    for polygon in polygons:
+        ring = polygon[0] if polygon else []
+        for a, b in zip(ring, ring[1:]):
+            middle = QgsGeometry.fromPointXY(QgsPointXY((a.x() + b.x()) / 2, (a.y() + b.y()) / 2))
+            sizes.append(enterprise.distance(middle))
+    return (min(sizes), max(sizes)) if sizes else (0.0, 0.0)
+
+
 def depth_group(category, vri=None):
     """Группа допуска по категории земель (и ВРИ — для сельхозземель)."""
     c = (text(category) or "").lower().replace("ё", "е")
@@ -123,6 +170,9 @@ def category_text(value):
     if value is None or value.lower() in UNKNOWN_CATEGORY:
         return NO_CATEGORY
     return value
+
+# Название территориальной зоны: НСПД (name_by_doc), прочие выгрузки
+TERR_ZONE_FIELDS = ["name_by_doc", "name", "наименование", "zone_name", "название", "descr"]
 
 # Поля выгрузки НСПД, импорта КПТ и частые названия (сравнение без регистра).
 # В КПТ cadastral_number — номер квартала, не участка: в список не входит.
@@ -409,24 +459,36 @@ def _ring_points(ring, clockwise):
     return clean[start:] + clean[:start]
 
 
-def szz_points(geometry):
-    """Каталог точек границы СЗЗ: [(№, X на север, Y на восток, № контура)].
+def szz_rings(geometry):
+    """Контуры СЗЗ по полигонам: [[[(№, X на север, Y на восток), …] по кольцам] по полигонам].
 
     Внешний контур — по часовой, внутренний — против, каждый с северо-западной вершины;
-    в конце контура повторяется его первая точка. Номера сквозные. Геометрия — в той СК,
+    в конце кольца повторяется его первая точка. Номера сквозные. Геометрия — в той СК,
     в которой нужны координаты (МСК)."""
-    rows = []
+    result = []
     number = 0
-    contour = 0
     polygons = geometry.asMultiPolygon() if geometry.isMultipart() else [geometry.asPolygon()]
     for polygon in polygons:
+        rings = []
         for index, ring in enumerate(polygon):
-            contour += 1
             points = _ring_points(ring, clockwise=(index == 0))
-            first = number + 1
+            rows = []
             for p in points:
                 number += 1
-                rows.append((number, round(p.y(), 2), round(p.x(), 2), contour))
-            if points:
-                rows.append((first, round(points[0].y(), 2), round(points[0].x(), 2), contour))
+                rows.append((number, round(p.y(), 2), round(p.x(), 2)))
+            if rows:
+                rows.append(rows[0])
+                rings.append(rows)
+        result.append(rings)
+    return result
+
+
+def szz_points(geometry):
+    """Каталог точек границы СЗЗ: [(№, X на север, Y на восток, № контура)] — см. szz_rings."""
+    rows = []
+    contour = 0
+    for rings in szz_rings(geometry):
+        for ring in rings:
+            contour += 1
+            rows.extend((n, x, y, contour) for n, x, y in ring)
     return rows

@@ -2,6 +2,7 @@
 
 import datetime
 import os
+import uuid
 
 from qgis.core import (
     Qgis,
@@ -20,6 +21,7 @@ from qgis.core import (
 )
 from qgis.gui import (
     QgsCollapsibleGroupBox,
+    QgsDateEdit,
     QgsFieldComboBox,
     QgsFileWidget,
     QgsMapLayerComboBox,
@@ -35,6 +37,7 @@ from qgis.PyQt.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QSpinBox,
     QFormLayout,
     QFrame,
     QGroupBox,
@@ -134,6 +137,11 @@ class SzzDialog(QDialog):
         row.addWidget(self.enterprise_cad, 1)
         row.addWidget(self.cad_button)
         form.addRow("или по номеру:", row)
+        self.extract = QgsFileWidget()
+        self.extract.setFilter("Выписка ЕГРН (*.xml)")
+        self.extract.setToolTip("XML-выписка ЕГРН о земельном участке предприятия: из неё берётся "
+                                "адрес — в Word и в XML для ЕГРН (с кодами ФИАС, ОКАТО, ОКТМО)")
+        form.addRow("Выписка ЕГРН (XML):", self.extract)
         self.same = QCheckBox("СЗЗ без слоя — от границы предприятия")
         form.addRow("", self.same)
         self.szz_width = QDoubleSpinBox()
@@ -153,6 +161,20 @@ class SzzDialog(QDialog):
         self.szz.setAllowEmptyLayer(True)
         self.szz_label = QLabel("Слой СЗЗ:")
         form.addRow(self.szz_label, self.szz)
+        self.smooth = QCheckBox("сгладить СЗЗ: углы — дугой по размеру от границы")
+        self.smooth.setToolTip("Для «квадратной» СЗЗ с прямыми углами: граница строится заново на "
+                               "том же расстоянии от предприятия, углы скруглены. СЗЗ с разным "
+                               "размером по сторонам не сглаживается.")
+        self.smooth.setChecked(_settings_value("smooth", False, bool))
+        form.addRow("", self.smooth)
+        self.szz_points = QSpinBox()
+        self.szz_points.setRange(0, 10000)
+        self.szz_points.setSpecialValueText("без ограничения")
+        self.szz_points.setToolTip("Сколько поворотных точек будет у скруглённой СЗЗ (каталог, XML). "
+                                   "Точки дуги ставятся снаружи: СЗЗ нигде не меньше размера.")
+        self.szz_points.setValue(_settings_value("szz_points", core.SZZ_POINTS, int))
+        self.szz_points_label = QLabel("Точек на контуре:")
+        form.addRow(self.szz_points_label, self.szz_points)
         layout.addWidget(box)
 
         self.zones_box = QGroupBox("В слое СЗЗ несколько зон — какие взять?")
@@ -196,6 +218,18 @@ class SzzDialog(QDialog):
         form.addRow("Кадастровый номер:", self.cad_field)
         form.addRow("Категория земель:", self.category_field)
         form.addRow("ВРИ по документу:", self.vri_field)
+        # территориальные зоны ПЗЗ: столбец в таблицах и отдельная карта (пожелание 2026-10-27)
+        self.terr_zones = QgsMapLayerComboBox()
+        self.terr_zones.setFilters(_layer_filter("PolygonLayer"))
+        self.terr_zones.setAllowEmptyLayer(True)
+        self.terr_zones.setToolTip("Слой территориальных зон (ПЗЗ): у участков в таблицах — столбец "
+                                   "«Территориальная зона», к карте СЗЗ — карта градостроительного "
+                                   "зонирования. С НСПД загружается кнопкой «Загрузить с НСПД».")
+        form.addRow("Территориальные зоны:", self.terr_zones)
+        self.nspd_terr = QCheckBox("загружать с НСПД и территориальные зоны (ПЗЗ)")
+        self.nspd_terr.setChecked(_settings_value("nspd_terr", True, bool))
+        self.nspd_terr.toggled.connect(self._remember)
+        form.addRow("", self.nspd_terr)
         self.distance = QDoubleSpinBox()
         self.distance.setRange(0, 100000)
         self.distance.setDecimals(0)
@@ -273,6 +307,24 @@ class SzzDialog(QDialog):
         self.coords.setChecked(_settings_value("coords", True, bool))
         self.coords.toggled.connect(self._remember)
         form.addRow("Координаты:", self.coords)
+        self.xml_on = QCheckBox("XML о границе СЗЗ для внесения в ЕГРН")
+        self.xml_on.setToolTip("Схема Росреестра interact_entry_boundaries_v02: контур СЗЗ в МСК, "
+                               "адрес из выписки ЕГРН. Нужен каталог координат.")
+        self.xml_on.setChecked(_settings_value("xml", False, bool))
+        form.addRow("ЕГРН:", self.xml_on)
+        self.authority = QLineEdit(_settings_value("authority", "", str))
+        self.authority.setPlaceholderText("Управление Роспотребнадзора по …")
+        self.authority_label = QLabel("Решение принял:")
+        form.addRow(self.authority_label, self.authority)
+        self.start_date = QgsDateEdit()
+        self.start_date.setAllowNull(True)
+        self.start_date.clear()
+        self.start_date_label = QLabel("СЗЗ действует с:")
+        form.addRow(self.start_date_label, self.start_date)
+        self.xml_on.toggled.connect(self._remember)
+        self.xml_on.toggled.connect(self._update_xml)
+        self.coords.toggled.connect(self._update_xml)
+        self._update_xml()
         layout.addWidget(box)
 
         self.status = QLabel()
@@ -294,6 +346,12 @@ class SzzDialog(QDialog):
         self.same.toggled.connect(self._layers_changed)
         self.szz_width.valueChanged.connect(self._remember)
         self.szz_width.valueChanged.connect(self.schedule)
+        self.szz_width.valueChanged.connect(self._update_points)
+        self.smooth.toggled.connect(self._remember)
+        self.smooth.toggled.connect(self._update_points)
+        self.smooth.toggled.connect(self.schedule)
+        self.szz_points.valueChanged.connect(self._remember)
+        self.szz_points.valueChanged.connect(self.schedule)
         self.enterprise_selected.toggled.connect(self.schedule)
         self.zone_mode.buttonToggled.connect(self._zone_mode_changed)
         self.zone_list.itemChanged.connect(self.schedule)
@@ -327,7 +385,7 @@ class SzzDialog(QDialog):
         в названии, и поле cad_num."""
         project = QgsProject.instance()
         saved = {key: project.layerStore().mapLayer(project.readEntry("szz_parcels", key, "")[0])
-                 for key in ("enterprise", "parcels", "szz")}
+                 for key in ("enterprise", "parcels", "szz", "terr_zones")}
         layers = [l for l in project.mapLayers().values()
                   if isinstance(l, QgsVectorLayer) and not _is_result(l)]
 
@@ -344,6 +402,8 @@ class SzzDialog(QDialog):
             and any(w in l.name().lower() for w in ("границ", "предприят"))
             and l is not self.parcels.currentLayer())
         self.enterprise.setLayer(enterprise)
+        self.terr_zones.setLayer(saved.get("terr_zones") or first(
+            lambda l: l.geometryType() == polygon and "территориальн" in l.name().lower()))
         self.same.setChecked(_settings_value("same", False, bool))
         self._parcels_changed()
 
@@ -374,16 +434,20 @@ class SzzDialog(QDialog):
         settings.setValue(SETTINGS + "same", self.same.isChecked())
         if getattr(self, "szz_width", None) is not None:
             settings.setValue(SETTINGS + "szz_width", self.szz_width.value())
+            settings.setValue(SETTINGS + "smooth", self.smooth.isChecked())
+            settings.setValue(SETTINGS + "szz_points", self.szz_points.value())
         settings.setValue(SETTINGS + "xlsx", self.xlsx_on.isChecked())
         settings.setValue(SETTINGS + "docx", self.docx_on.isChecked())
         if getattr(self, "coord_crs", None) is not None:
             settings.setValue(SETTINGS + "coord_crs", self.coord_crs.crs().authid()
                               if self.coord_crs.crs().isValid() else "")
-        for key in ("direction", "direction_from", "map_on", "coords", "normed"):
+        if getattr(self, "authority", None) is not None:
+            settings.setValue(SETTINGS + "authority", self.authority.text().strip())
+        for key in ("direction", "direction_from", "map_on", "coords", "normed", "xml_on", "nspd_terr"):
             widget = getattr(self, key, None)
             if widget is not None:
                 value = widget.currentIndex() if key == "direction_from" else widget.isChecked()
-                settings.setValue(SETTINGS + ("map" if key == "map_on" else key), value)
+                settings.setValue(SETTINGS + {"map_on": "map", "xml_on": "xml"}.get(key, key), value)
         for spin in [getattr(self, "min_area", None)] + list(getattr(self, "depth_spins", {}).values()):
             if spin is not None:
                 settings.setValue(SETTINGS + spin.property("key"), spin.value())
@@ -415,11 +479,26 @@ class SzzDialog(QDialog):
         self.szz_label.setEnabled(not self.same.isChecked())
         self.szz_width.setEnabled(self.same.isChecked())
         self.szz_width_label.setEnabled(self.same.isChecked())
+        self.smooth.setEnabled(not self.same.isChecked())
+        self._update_points()
         self._fill_zones()
         self._update_selection_labels()
         self.update_nspd_button()
         self._suggest_files()
         self.schedule()
+
+    def _update_xml(self, *args):
+        """XML для ЕГРН — только с каталогом координат (контур в МСК)."""
+        self.xml_on.setEnabled(self.coords.isChecked())
+        on = self.xml_on.isChecked() and self.coords.isChecked()
+        for widget in (self.authority, self.authority_label, self.start_date, self.start_date_label):
+            widget.setEnabled(on)
+
+    def _update_points(self, *args):
+        """Число точек нужно, только когда СЗЗ скругляется: размером от границы или сглаживанием."""
+        rounded = (self.szz_width.value() > 0) if self.same.isChecked() else self.smooth.isChecked()
+        self.szz_points.setEnabled(rounded)
+        self.szz_points_label.setEnabled(rounded)
 
     def _selection_changed(self, *args):
         self._update_selection_labels()
@@ -539,10 +618,20 @@ class SzzDialog(QDialog):
         params = self.parameters_zone()
         params["DISTANCE"] = self.distance.value()
         params["OUTPUT"] = self._new_file("Участки НСПД {}".format(datetime.date.today().isoformat()))
+        if self.nspd_terr.isChecked():
+            params["TERR_OUT"] = self._new_file("Территориальные зоны НСПД {}".format(
+                datetime.date.today().isoformat()))
         return params
 
     def _load_nspd(self):
         self.nspd_callback(self.nspd_parameters(), self)
+
+    def _xml_path(self):
+        """«interact_entry_boundaries_<guid>.xml» — так Росреестр называет файл; guid тот же в файле."""
+        base = self.xlsx.filePath() or self.docx.filePath()
+        folder = os.path.dirname(base) if base else os.path.join(
+            QgsProject.instance().homePath() or os.path.expanduser("~"), OUTPUT_FOLDER)
+        return os.path.join(folder, "interact_entry_boundaries_{}.xml".format(uuid.uuid4()))
 
     def _map_path(self):
         """«Карта СЗЗ.pdf» — рядом с Excel (или в «Карты СЗЗ»), прежняя не затирается."""
@@ -636,8 +725,10 @@ class SzzDialog(QDialog):
             if mode == LIST:
                 source.filterExpression = "$id IN ({})".format(", ".join(str(i) for i in ids))
             params["SZZ"] = source
+            params["SMOOTH"] = self.smooth.isChecked()
         else:
             params["SZZ_WIDTH"] = self.szz_width.value()
+        params["SZZ_POINTS"] = self.szz_points.value()
         return params
 
     def parameters(self):
@@ -660,6 +751,12 @@ class SzzDialog(QDialog):
             "COORD_CRS": self.coord_crs.crs() if self.coord_crs.crs().isValid() else None,
             "POINTS": "TEMPORARY_OUTPUT" if self.coords.isChecked() else None,
             "OBJECT": self.object_name.text().strip(),
+            "EXTRACT": self.extract.filePath() or None,
+            "TERR_ZONES": self.terr_zones.currentLayer().id() if self.terr_zones.currentLayer() else None,
+            "ZOUIT_XML": self._xml_path() if self.xml_on.isChecked() and self.coords.isChecked() else None,
+            "AUTHORITY": self.authority.text().strip(),
+            "START_DATE": (self.start_date.date().toString("yyyy-MM-dd")
+                           if not self.start_date.isNull() else ""),
             "INSIDE": "TEMPORARY_OUTPUT",
             "NEAR": "TEMPORARY_OUTPUT",
             "XLSX": None,
@@ -757,8 +854,12 @@ class SzzDialog(QDialog):
             if zone is None:
                 raise ValueError("В выбранных зонах СЗЗ нет контуров — отметьте другую зону "
                                  "или выберите «все зоны слоя».")
+            if self.smooth.isChecked():  # как в алгоритме: только «квадратная», охватывающая
+                low, high = core.zone_width(enterprise, zone)
+                if zone.contains(enterprise) and low > 0 and high - low <= max(0.1 * low, 1.0):
+                    zone = core.round_zone(enterprise, round(low, 1), self.szz_points.value())
         elif self.szz_width.value() > 0:  # как в алгоритме: граница + размер СЗЗ
-            zone = enterprise.buffer(self.szz_width.value(), 36)
+            zone = core.round_zone(enterprise, self.szz_width.value(), self.szz_points.value())
         min_area, depths = self.tolerances()
         classifier = core.Classifier(enterprise, zone, self.distance.value(),
                                      min_overlap=min_area, depths=depths)
@@ -800,7 +901,8 @@ class SzzDialog(QDialog):
         self._remember()
         # выбор слоёв — в проект: при следующем открытии окна те же слои, а не угаданные
         project = QgsProject.instance()
-        for key, combo in (("enterprise", self.enterprise), ("parcels", self.parcels), ("szz", self.szz)):
+        for key, combo in (("enterprise", self.enterprise), ("parcels", self.parcels), ("szz", self.szz),
+                           ("terr_zones", self.terr_zones)):
             layer = combo.currentLayer()
             project.writeEntry("szz_parcels", key, layer.id() if layer else "")
         self.run_callback(self.parameters(), self)

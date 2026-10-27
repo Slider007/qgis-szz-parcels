@@ -50,7 +50,7 @@ from qgis.core import (  # noqa: E402
 
 from qgis.gui import QgsMapCanvas, QgsRubberBand  # noqa: E402
 from qgis.PyQt import sip  # noqa: E402
-from qgis.PyQt.QtCore import QEvent, Qt  # noqa: E402
+from qgis.PyQt.QtCore import QDate, QEvent, Qt  # noqa: E402
 from qgis.PyQt.QtWidgets import QMainWindow, QMenu, QToolBar  # noqa: E402
 
 app = QgsApplication([], True, PROFILE)
@@ -74,7 +74,7 @@ Processing.initialize()
 with warnings.catch_warnings():
     warnings.simplefilter("error", DeprecationWarning)
     import szz_parcels  # noqa: E402,F401
-    from szz_parcels import core, export, msk, nspd  # noqa: E402
+    from szz_parcels import core, export, msk, nspd, zouit  # noqa: E402
     from szz_parcels import plugin as plugin_module  # noqa: E402,F401
     from szz_parcels.processing import registry_algorithm  # noqa: E402,F401
     from szz_parcels.processing.provider import SzzParcelsProvider  # noqa: E402
@@ -633,10 +633,132 @@ class RegistryTest(unittest.TestCase):
         self.assertNotIn("normed", QgsProcessingContextless.layer(result["INSIDE"]).fields().names())
         self.assertNotIn("NORMED_OUT", result)
 
+    def test_round_zone(self):
+        """Скругление по размеру: точек не больше заданного, СЗЗ нигде не меньше размера."""
+        enterprise = rect(0, 0, 100, 100)
+        for points in (12, 20, 40):
+            zone = core.round_zone(enterprise, 50, points)
+            self.assertLessEqual(core.vertex_count(zone), points)
+            self.assertGreaterEqual(core.vertex_count(zone), points - 4)
+            boundary = QgsGeometry.fromPolylineXY(zone.asPolygon()[0])
+            self.assertGreaterEqual(boundary.distance(enterprise), 49.99)
+            # и не раздута: дальше всего от предприятия — не больше чем на 15 % размера
+            far = max(enterprise.distance(QgsGeometry.fromPointXY(QgsPointXY(p))) for p in zone.asPolygon()[0])
+            self.assertLess(far, 50 * 1.15, points)
+        self.assertGreater(core.vertex_count(core.round_zone(enterprise, 50, 0)), 100)  # без ограничения
+        # «квадратная» СЗЗ: отступы по серединам сторон равны; неравномерная — разные
+        self.assertEqual(tuple(round(v) for v in core.zone_width(enterprise, rect(-50, -50, 150, 150))), (50, 50))
+        self.assertEqual(tuple(round(v) for v in core.zone_width(enterprise, rect(-50, -50, 300, 150))), (50, 200))
+
+    def test_smooth_square_szz(self):
+        """«Квадратная» СЗЗ ±50 м сглаживается: 50 м от границы, ≤ 20 точек в каталоге и слое,
+        заметка в Word; неравномерная — не трогается."""
+        docx = os.path.join(OUT, "сглаженная.docx")
+        result, feedback = run(SMOOTH=True, SZZ_POINTS=20, SZZ_OUT="memory:", POINTS="memory:", DOCX=docx)
+        self.assertTrue(result["SMOOTHED"])
+        self.assertEqual(result["SZZ_SIZE"], 50)
+        zone = next(QgsProcessingContextless.layer(result["SZZ_OUT"]).getFeatures()).geometry()
+        self.assertLessEqual(core.vertex_count(zone), 20)
+        self.assertLessEqual(QgsProcessingContextless.layer(result["POINTS"]).featureCount(), 20)
+        with zipfile.ZipFile(docx) as z:
+            self.assertIn("Граница СЗЗ сглажена: 50 м", z.read("word/document.xml").decode("utf-8"))
+        uneven = layer("Polygon", [(rect(-50, -50, 300, 150), ["СЗЗ ПС"])], SZZ_FIELDS)
+        result, feedback = run(szz=uneven, SMOOTH=True, SZZ_OUT="memory:")
+        self.assertNotIn("SZZ_OUT", result)
+        self.assertTrue(any("не сглажена: размер разный, от 50 до 200 м" in w for w in feedback.warnings))
+
+    EXTRACT = """<?xml version="1.0" encoding="UTF-8"?>
+<extract_base_params_land><land_record><object><common_data><cad_number>23:47:0107010:9</cad_number>
+</common_data></object><address_location><address><address_fias><level_settlement>
+<okato>03420000000</okato><kladr>23000006000044900</kladr>
+<region><code>23</code><value>Краснодарский край</value></region>
+<city><type_city>г</type_city><name_city>Новороссийск</name_city></city>
+<locality><type_locality>п</type_locality><name_locality>Тестовый</name_locality></locality>
+</level_settlement><detailed_level><street><type_street>ул</type_street><name_street>Мира</name_street>
+</street></detailed_level></address_fias>
+<readable_address>Краснодарский край, г. Новороссийск, п. Тестовый, ул. Мира</readable_address>
+</address></address_location></land_record></extract_base_params_land>"""
+
+    def validate(self, path):
+        """Проверка по схеме Росреестра (tests/xsd); без xmllint — пропуск."""
+        import shutil
+        import subprocess
+        if not shutil.which("xmllint"):
+            self.skipTest("нет xmllint")
+        xsd = os.path.join(os.path.dirname(os.path.abspath(__file__)), "xsd", "main.xsd")
+        done = subprocess.run(["xmllint", "--noout", "--schema", xsd, path], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_read_extract(self):
+        path = os.path.join(OUT, "выписка.xml")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(self.EXTRACT)
+        data = zouit.read_extract(path)
+        self.assertEqual(data["cad"], "23:47:0107010:9")
+        self.assertIn("ул. Мира", data["readable"])
+        self.assertEqual([k for k, _ in data["location"]], ["okato", "kladr", "region", "city", "locality"])
+        self.assertEqual(dict(data["location"])["region"], "23")
+        self.assertIsNone(zouit.read_extract(os.path.join(OUT, "реестр.docx")))  # не выписка
+
+    def test_zouit_xml(self):
+        extract = os.path.join(OUT, "выписка.xml")
+        with open(extract, "w", encoding="utf-8") as f:
+            f.write(self.EXTRACT)
+        guid = "000e5358-4957-46b5-a408-8ba6fe3f3fc1"
+        path = os.path.join(OUT, "interact_entry_boundaries_{}.xml".format(guid))
+        result, feedback = run(ZOUIT_XML=path, EXTRACT=extract, OBJECT="ПС 220 кВ Тестовая",
+                               AUTHORITY="Управление Роспотребнадзора по Краснодарскому краю",
+                               START_DATE="2026-10-27", SMOOTH=True)
+        self.assertEqual(result["ZOUIT_XML"], path)
+        self.validate(path)
+        xml = open(path, encoding="utf-8").read()
+        self.assertIn('guid="{}"'.format(guid), xml)
+        self.assertIn("<cadastral_district>23:47</cadastral_district>", xml)
+        self.assertIn("<type_zone>218020030005</type_zone>", xml)
+        self.assertIn("<EnSpa2:sk_code>23.1</EnSpa2:sk_code>", xml)
+        self.assertIn("<AdrCi2:name_locality>Тестовый</AdrCi2:name_locality>", xml)
+        self.assertIn("Санитарно-защитная зона ПС 220 кВ Тестовая", xml)
+        self.assertIn("<start_date>2026-10-27</start_date>", xml)
+        # сглаженная СЗЗ: не больше 20 точек, контур замкнут повтором точки 1
+        self.assertLessEqual(xml.count("<EnSpa2:ordinate>"), core.SZZ_POINTS + 1)
+        self.assertEqual(xml.count("<EnSpa2:ord_nmb>1</EnSpa2:ord_nmb>"), 2)
+        # без выписки — адрес только кодом субъекта, файл всё равно по схеме
+        plain = os.path.join(OUT, "без выписки.xml")
+        result, feedback = run(ZOUIT_XML=plain)
+        self.validate(plain)
+        self.assertIn("<AdrCi2:region>23</AdrCi2:region>", open(plain, encoding="utf-8").read())
+        self.assertTrue(any("только код субъекта" in w for w in feedback.warnings))
+        # без координат — не составляется
+        result, feedback = run(ZOUIT_XML=os.path.join(OUT, "нет.xml"), COORDS=False)
+        self.assertNotIn("ZOUIT_XML", result)
+        self.assertTrue(any("нужны координаты СЗЗ" in w for w in feedback.warnings))
+
+    def test_terr_zones_column(self):
+        zones = layer("Polygon", [(rect(-100, -100, 105, 300), ["Производственная зона (П-1)"]),
+                                  (rect(105, -100, 400, 300), ["Зона жилой застройки (Ж-1)"])],
+                      "&field=name_by_doc:string")
+        xlsx = os.path.join(OUT, "зоны.xlsx")
+        result, _ = run(TERR_ZONES=zones, XLSX=xlsx)
+        inside = QgsProcessingContextless.layer(result["INSIDE"])
+        by_cad = {f["cad_num"]: f["terr_zone"] for f in inside.getFeatures()}
+        self.assertEqual(by_cad["23:47:0107010:10"], "Зона жилой застройки (Ж-1)")
+        near = QgsProcessingContextless.layer(result["NEAR"])
+        by_cad = {f["cad_num"]: f["terr_zone"] for f in near.getFeatures()}
+        # контур 70…100 × −35…15 — весь в П-1; :6 вне зон — прочерк
+        self.assertEqual(by_cad["23:47:0107010:6"], "Производственная зона (П-1)")
+        first = QgsVectorLayer(xlsx + "|layername=В границах СЗЗ", "x", "ogr")
+        self.assertIn("Территориальная зона", first.fields().names())
+        result, _ = run()
+        self.assertNotIn("terr_zone", QgsProcessingContextless.layer(result["INSIDE"]).fields().names())
+
     def test_szz_by_width(self):
         """Без слоя СЗЗ, размер 50 м: те же участки, что со слоем СЗЗ ±50 м; расстояния — до СЗЗ."""
         docx = os.path.join(OUT, "ширина.docx")
-        result, _ = run(szz=False, SZZ_WIDTH=50, SZZ_OUT="memory:", DOCX=docx)
+        # без ограничения точек — гладкая дуга, как СЗЗ слоем; с 20 точками хорды снаружи и
+        # участки, касающиеся СЗЗ ровно по границе, оказываются внутри (СЗЗ не меньше 50 м)
+        coarse, _ = run(szz=False, SZZ_WIDTH=50)
+        self.assertGreaterEqual(coarse["INSIDE_COUNT"], 3)
+        result, _ = run(szz=False, SZZ_WIDTH=50, SZZ_POINTS=0, SZZ_OUT="memory:", DOCX=docx)
         self.assertFalse(result["FROM_ENTERPRISE"])
         self.assertEqual(result["INSIDE_COUNT"], 3)
         near = QgsProcessingContextless.layer(result["NEAR"])
@@ -780,8 +902,8 @@ class FakeNspd:
         self.statuses = list(statuses)  # коды, которые вернуть до нормального ответа
         self.too_big = too_big_area_m2   # область больше — ответ 500
         self.calls = []
-        to_web = QgsCoordinateTransform(QgsCoordinateReferenceSystem(CRS),
-                                        QgsCoordinateReferenceSystem("EPSG:3857"), QgsProject.instance())
+        to_web = self.to_web = QgsCoordinateTransform(QgsCoordinateReferenceSystem(CRS),
+                                                      QgsCoordinateReferenceSystem("EPSG:3857"), QgsProject.instance())
         self.to_wgs = QgsCoordinateTransform(QgsCoordinateReferenceSystem("EPSG:3857"),
                                              QgsCoordinateReferenceSystem("EPSG:4326"), QgsProject.instance())
         # как настоящий НСПД: один объект на участок, многоконтурный — MultiPolygon
@@ -819,7 +941,17 @@ class FakeNspd:
         area = QgsGeometry.fromWkt(ogr.CreateGeometryFromJson(
             json.dumps(body["geom"]["features"][0]["geometry"])).ExportToWkt())
         self.calls.append(area)
-        assert body["categories"] == [{"id": 36368}]
+        assert body["categories"] in ([{"id": 36368}], [{"id": nspd.TERR_ZONES}])
+        if body["categories"] == [{"id": nspd.TERR_ZONES}]:  # территориальные зоны — две
+            zones = []
+            for n, (name, box) in enumerate((("Производственная зона (П-1)", (-100, -100, 105, 300)),
+                                             ("Зона жилой застройки (Ж-1)", (105, -100, 400, 300))), 1):
+                g = rect(*box)
+                g.transform(self.to_web)
+                zones.append({"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [
+                    [[p.x(), p.y()] for p in g.asPolygon()[0]]]},
+                    "properties": {"interactionId": 5000 + n, "options": {"name_by_doc": name}}})
+            return 200, json.dumps({"type": "FeatureCollection", "features": zones}).encode()
         if self.statuses:
             return self.statuses.pop(0), b""
         if self.too_big is not None:
@@ -1288,6 +1420,27 @@ class PluginTest(unittest.TestCase):
         text, level = self.iface.bar.messages[-1]
         self.assertEqual(level, Qgis.MessageLevel.Success)
         self.assertIn("Загружено участков с НСПД", text)
+        self.assertIn("Территориальных зон (ПЗЗ): 2", text)
+        zones = dialog.terr_zones.currentLayer()
+        self.assertTrue(zones.name().startswith("Территориальные зоны НСПД"))
+        self.assertEqual(zones.renderer().type(), "categorizedSymbol")
+        # расчёт с зонами: столбец в таблицах и вторая карта — градостроительного зонирования
+        dialog.map_on.setChecked(True)
+        dialog._run()
+        self.wait()
+        manager = QgsProject.instance().layoutManager()
+        zoning = manager.layoutByName("Карта градостроительного зонирования")
+        self.assertIsNotNone(zoning)
+        from qgis.core import QgsLayoutItemMap
+        shown = [l.name() for l in [i for i in zoning.items() if isinstance(i, QgsLayoutItemMap)][0].layers()]
+        self.assertIn(zones.name(), shown)
+        self.assertFalse(any(n.startswith("В границах СЗЗ") for n in shown))  # участков на ней нет
+        from qgis.core import QgsLayoutExporter
+        image = QgsLayoutExporter.ImageExportSettings()
+        image.generateWorldFile = False
+        QgsLayoutExporter(zoning).exportToImage(os.path.join(OUT, "карта ПЗЗ.png"), image)
+        folder = os.path.join(project_dir, "Карты СЗЗ")
+        self.assertTrue(any(f.startswith("Карта градостроительного зонирования") for f in os.listdir(folder)))
         # второй раз в тот же день — новый файл « 2», прежний не тронут
         self.assertTrue(dialog.nspd_parameters()["OUTPUT"].endswith(" 2.gpkg"))
         # стиль пользователя: цвета по категориям земель, подписи — конец кадастрового номера
@@ -1327,9 +1480,10 @@ class PluginTest(unittest.TestCase):
         finally:
             nspd.URL = old
             server.shutdown()
-        self.assertEqual(len(fake.calls), 1)
+        self.assertEqual(len(fake.calls), 2)  # участки и территориальные зоны
         self.assertEqual(self.iface.bar.messages[-1][1], Qgis.MessageLevel.Success)
         self.assertGreater(dialog.parcels.currentLayer().featureCount(), 0)
+        self.assertEqual(dialog.terr_zones.currentLayer().featureCount(), 2)
 
     def test_nspd_error_shown(self):
         use_nspd(lambda body, feedback=None: (0, b""))
@@ -1489,7 +1643,36 @@ class PluginTest(unittest.TestCase):
         dialog.normed.setChecked(False)
         self.assertIsNone(dialog.parameters()["NORMED_OUT"])
         dialog.normed.setChecked(True)
+        self.assertTrue(dialog.szz_points.isEnabled())   # размер > 0 — дуга, точки нужны
         dialog.szz_width.setValue(0)
+        self.assertFalse(dialog.szz_points.isEnabled())
+        dialog.same.setChecked(False)
+        self.assertTrue(dialog.smooth.isEnabled())
+        dialog.smooth.setChecked(True)
+        self.assertTrue(dialog.szz_points.isEnabled())
+        self.assertTrue(dialog.parameters()["SMOOTH"])
+        self.assertEqual(dialog.parameters()["SZZ_POINTS"], 20)
+        dialog.smooth.setChecked(False)
+        dialog.same.setChecked(True)
+
+    def test_xml_in_dialog(self):
+        dialog = self.open()
+        dialog.coords.setChecked(False)
+        self.assertFalse(dialog.xml_on.isEnabled())
+        dialog.coords.setChecked(True)
+        dialog.xml_on.setChecked(True)
+        self.assertTrue(dialog.authority.isEnabled())
+        params = dialog.parameters()
+        self.assertRegex(os.path.basename(params["ZOUIT_XML"]),
+                         r"^interact_entry_boundaries_[0-9a-f-]{36}\.xml$")
+        self.assertEqual(params["START_DATE"], "")
+        dialog.start_date.setDate(QDate(2026, 10, 27))
+        self.assertEqual(dialog.parameters()["START_DATE"], "2026-10-27")
+        dialog._run()
+        self.wait()
+        self.assertIn("XML для ЕГРН", " ".join(t for t, _ in self.iface.bar.messages))
+        dialog.xml_on.setChecked(False)
+        self.assertIsNone(dialog.parameters()["ZOUIT_XML"])
 
     def test_enterprise_by_number_in_dialog(self):
         use_nspd(FakeNspd())

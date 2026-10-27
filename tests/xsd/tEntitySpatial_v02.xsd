@@ -1,0 +1,608 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:EnSpa2="urn://x-artefacts-rosreestr-ru/commons/complex-types/entity-spatial/2.0.1" xmlns:SimAll1="urn://x-artefacts-rosreestr-ru/commons/simple-types-all/1.0" xmlns:Are1="urn://x-artefacts-rosreestr-ru/commons/complex-types/area/1.0.1" xmlns:dGeO1="urn://x-artefacts-rosreestr-ru/commons/directories/geopoint-opred/1.0.1" xmlns:dTopo1="urn://x-artefacts-rosreestr-ru/commons/directories/type-topology/1.0.1" targetNamespace="urn://x-artefacts-rosreestr-ru/commons/complex-types/entity-spatial/2.0.1" elementFormDefault="qualified">
+	<!--ПРОСТЫЕ ТИПЫ ДАННЫХ:-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/simple-types-all/1.0" schemaLocation="P_CommonSimpleTypeAll_v01.xsd"/>
+	<!--СОСТАВНЫЕ ТИПЫ ДАННЫХ:-->
+	<!--Площадь-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/complex-types/area/1.0.1" schemaLocation="tArea_v01.xsd"/>
+	<!--КЛАССИФИКАТОРЫ И СПРАВОЧНИКИ:-->
+	<!--Методы определения координат характерных точек-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/geopoint-opred/1.0.1" schemaLocation="dGeopointOpred_v01.xsd"/>
+	<!--Виды топологии элемента-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/type-topology/1.0.1" schemaLocation="dTypeTopology_v01.xsd"/>
+	<!--=====ВЕРСИЯ 2.-->
+	<!--===Описание местоположения границ земельных участков-->
+	<xs:complexType name="ZUContoursLocation">
+		<xs:annotation>
+			<xs:documentation>Описание местоположения границы земельного участка (в т.ч. текстовое описание прохождения границы)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="contours" type="EnSpa2:Contours">
+				<xs:annotation>
+					<xs:documentation>Контуры (контур) границы (координаты характерных точек границы) земельного участка</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="borders" type="EnSpa2:Borders" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Текстовое описание прохождения участков границы,  расположенных между двумя точками</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="Contours">
+		<xs:annotation>
+			<xs:documentation>Контуры (контур) границы (координаты характерных точек границы)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="contour" type="EnSpa2:Contour" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Контур границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="Contour">
+		<xs:annotation>
+			<xs:documentation>Описание контура границы</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="number_pp" type="SimAll1:p10" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Порядковый номер контура</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="definition" type="SimAll1:s50" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Обозначение контура</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="area" type="Are1:LandAreaType" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Площадь контура</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="entity_spatial" type="EnSpa2:EntitySpatial">
+				<xs:annotation>
+					<xs:documentation>Описание элементов контура (характерных точек границы контура)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<!--===Описание местоположения границ территорий, зон, объектов землеустройства-->
+	<xs:complexType name="BoundContoursLocation">
+		<xs:annotation>
+			<xs:documentation>Текстовое и графическое описание местоположения</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="contours" type="EnSpa2:ContoursBoundaries">
+				<xs:annotation>
+					<xs:documentation>Контуры (контур) (координаты характерных точек контура)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="borders" type="EnSpa2:Borders" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Текстовое описание прохождения участков границы,  расположенных между двумя точками</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="location_text" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Текстовое описание местоположения границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="BoundContours">
+		<xs:annotation>
+			<xs:documentation>Графическое описание местоположения границы (характерных точек границы)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="contours" type="EnSpa2:ContoursBoundaries">
+				<xs:annotation>
+					<xs:documentation>Контуры (контур) (координаты характерных точек контура)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ContoursBoundaries">
+		<xs:annotation>
+			<xs:documentation>Контуры (контур) границы (координаты характерных точек контура)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="contour" type="EnSpa2:ContourBoundaries" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Контур (координаты характерных точек контура)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ContourBoundaries">
+		<xs:annotation>
+			<xs:documentation>Описание контура границы</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="number_pp" type="SimAll1:p10" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Порядковый номер контура границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="definition" type="SimAll1:s50" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Обозначение контура границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="entity_spatial" type="EnSpa2:EntitySpatial">
+				<xs:annotation>
+					<xs:documentation>Описание элементов контура (характерных точек контура)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="BoundContoursLocationBorders">
+		<xs:annotation>
+			<xs:documentation>Текстовое и графическое описание местоположения границ</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="contours" type="EnSpa2:ContoursBoundaries">
+				<xs:annotation>
+					<xs:documentation>Контуры (контур) (координаты характерных точек контура)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="borders" type="EnSpa2:Borders">
+				<xs:annotation>
+					<xs:documentation>Текстовое описание прохождения участков границы,  расположенных между двумя точками</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="location_text" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Текстовое описание местоположения границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<!--===Общие типы-->
+	<xs:complexType name="EntitySpatial">
+		<xs:annotation>
+			<xs:documentation>Описание элементов контура (характерных точек контура)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="sk_code" type="EnSpa2:sSk_Code">
+				<xs:annotation>
+					<xs:documentation>Система координат (код системы координат)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="spatials_elements" type="EnSpa2:SpatialsElements">
+				<xs:annotation>
+					<xs:documentation>Элементы контура</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="SpatialsElements">
+		<xs:annotation>
+			<xs:documentation>Элементы контура</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="spatial_element" type="EnSpa2:SpelementUnit" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Элемент контура</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="SpelementUnit">
+		<xs:annotation>
+			<xs:documentation>Часть элемента</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="type_unit" type="dTopo1:dTypeTopology">
+				<xs:annotation>
+					<xs:documentation>Вид топологии элемента</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="ordinates" type="EnSpa2:Ordinates">
+				<xs:annotation>
+					<xs:documentation>Список координат</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="Ordinates">
+		<xs:annotation>
+			<xs:documentation>Список координат</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="ordinate" type="EnSpa2:NewOrdinate" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Координата</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="Ordinate">
+		<xs:annotation>
+			<xs:documentation>Координата</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="x" type="SimAll1:d38_2">
+				<xs:annotation>
+					<xs:documentation>Координата X</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="y" type="SimAll1:d38_2">
+				<xs:annotation>
+					<xs:documentation>Координата Y</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="ord_nmb" type="SimAll1:p22">
+				<xs:annotation>
+					<xs:documentation>Номер точки (порядок обхода)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="num_geopoint" type="SimAll1:p22" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Номер точки (межевой точки)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="geopoint_zacrep" type="SimAll1:s120" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Способ закрепления точки</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="geopoint_opred" type="dGeO1:dGeopointOpred" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Метод определения точки</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="delta_geopoint" type="SimAll1:d20_2" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Погрешность</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="Borders">
+		<xs:annotation>
+			<xs:documentation>Текстовое описание прохождения участков границы,  расположенных между двумя точками</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="border" type="EnSpa2:Border" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Участок границы, расположенный между двумя точками</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="Border">
+		<xs:annotation>
+			<xs:documentation>Участок границы, расположенный между двумя точками</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="nmb_contour" type="SimAll1:p10">
+				<xs:annotation>
+					<xs:documentation>Порядковый номер контура</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="spatial_element" type="SimAll1:p22">
+				<xs:annotation>
+					<xs:documentation>Порядковый номер элемента контура</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="point1" type="SimAll1:p22">
+				<xs:annotation>
+					<xs:documentation>Порядковый номер точки1 в элементе</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="point2" type="SimAll1:p22">
+				<xs:annotation>
+					<xs:documentation>Порядковый номер точки2 в элементе</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="definition" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Описание прохождения участка границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<!--===Уточнение местоположения границ территорий, зон, объектов землеустройства-->
+	<xs:complexType name="BoundContoursLocationChange">
+		<xs:annotation>
+			<xs:documentation>Текстовое и графическое описание местоположения границы (существующее/уточненное)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="contours" type="EnSpa2:ContoursBoundariesChange">
+				<xs:annotation>
+					<xs:documentation>Контуры (контур) (существующие, новые координаты характерных точек контура)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="borders" type="EnSpa2:BorderChange" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Текстовое описание прохождения участков границы, расположенных между двумя точками (существующее/уточненное)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="location_text" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Текстовое описание местоположения границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="BoundContoursChange">
+		<xs:annotation>
+			<xs:documentation>Графическое описание местоположения уточненной (измененной) границы</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="contours" type="EnSpa2:ContoursBoundariesChange">
+				<xs:annotation>
+					<xs:documentation>Контуры (контур) (существующие, новые координаты характерных точек контура)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ContoursBoundariesChange">
+		<xs:annotation>
+			<xs:documentation>Контуры (контур) (существующие, новые координаты характерных точек контура)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="contour" type="EnSpa2:ContourBoundariesChange" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Контур (существующие, новые координаты характерных точек контура)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ContourBoundariesChange">
+		<xs:annotation>
+			<xs:documentation>Описание контура границы</xs:documentation>
+		</xs:annotation>
+		<xs:choice>
+			<xs:element name="new_contour">
+				<xs:annotation>
+					<xs:documentation>Добавить новый контур</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="number_pp" type="SimAll1:p10" minOccurs="0">
+							<xs:annotation>
+								<xs:documentation>Порядковый номер контура границы</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+						<xs:element name="definition" type="SimAll1:s50" minOccurs="0">
+							<xs:annotation>
+								<xs:documentation>Обозначение контура границы</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+						<xs:element name="entity_spatial" type="EnSpa2:EntitySpatial">
+							<xs:annotation>
+								<xs:documentation>Описание элементов контура (характерных точек контура (существующих и новых))</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="change_contour">
+				<xs:annotation>
+					<xs:documentation>Изменить существующий контур</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="number_pp" type="SimAll1:p10" minOccurs="0">
+							<xs:annotation>
+								<xs:documentation>Порядковый номер контура границы</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+						<xs:element name="definition" type="SimAll1:s50" minOccurs="0">
+							<xs:annotation>
+								<xs:documentation>Обозначение контура границы</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+						<xs:element name="entity_spatial" type="EnSpa2:EntitySpatialChange">
+							<xs:annotation>
+								<xs:documentation>Описание элементов контура (характерных точек контура (существующих и новых))</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="delete_contour">
+				<xs:annotation>
+					<xs:documentation>Удалить существующий контур</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="number_pp" type="SimAll1:p10">
+							<xs:annotation>
+								<xs:documentation>Порядковый номер контура границы</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+		</xs:choice>
+	</xs:complexType>
+	<xs:complexType name="EntitySpatialChange">
+		<xs:annotation>
+			<xs:documentation>Описание элементов контура (характерных точек контура)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="sk_code" type="EnSpa2:sSk_Code">
+				<xs:annotation>
+					<xs:documentation>Система координат (код системы координат)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="spatials_elements" type="EnSpa2:SpatialsElementsChange">
+				<xs:annotation>
+					<xs:documentation>Элементы контура</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="SpatialsElementsChange">
+		<xs:annotation>
+			<xs:documentation>Элементы контура</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="spatial_element" type="EnSpa2:SpelementUnitChange" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Элемент контура</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="SpelementUnitChange">
+		<xs:annotation>
+			<xs:documentation>Часть элемента</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="change_element" minOccurs="0" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Изменить элемент контура</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="type_unit" type="dTopo1:dTypeTopology">
+							<xs:annotation>
+								<xs:documentation>Вид топологии элемента</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+						<xs:element name="ordinates" type="EnSpa2:Ordinates">
+							<xs:annotation>
+								<xs:documentation>Список координат</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+						<xs:element name="start_ordinate" type="EnSpa2:Ordinate">
+							<xs:annotation>
+								<xs:documentation>Первая координата элемента контура для изменения</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+						<xs:element name="end_ordinate" type="EnSpa2:Ordinate">
+							<xs:annotation>
+								<xs:documentation>Последняя коррдината элемента контура для изменения</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="delete_element" minOccurs="0" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Удалить элемент контура</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="start_ordinate" type="EnSpa2:Ordinate">
+							<xs:annotation>
+								<xs:documentation>Первая координата элемента контура для удаления</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+						<xs:element name="end_ordinate" type="EnSpa2:Ordinate">
+							<xs:annotation>
+								<xs:documentation>Последняя коррдината элемента контура для удаления</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="NewOrdinate">
+		<xs:annotation>
+			<xs:documentation>Новая, уточненная (измененная) координата</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="x" type="SimAll1:d38_2">
+				<xs:annotation>
+					<xs:documentation>Координата X</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="y" type="SimAll1:d38_2">
+				<xs:annotation>
+					<xs:documentation>Координата Y</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="ord_nmb" type="SimAll1:p22">
+				<xs:annotation>
+					<xs:documentation>Номер точки (порядок обхода)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="num_geopoint" type="SimAll1:p22">
+				<xs:annotation>
+					<xs:documentation>Номер точки (межевой точки)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="geopoint_zacrep" type="SimAll1:s120" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Способ закрепления точки</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="geopoint_opred" type="dGeO1:dGeopointOpred">
+				<xs:annotation>
+					<xs:documentation>Метод определения точки</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="delta_geopoint" type="SimAll1:d20_2">
+				<xs:annotation>
+					<xs:documentation>Погрешность</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="BordersChange">
+		<xs:annotation>
+			<xs:documentation>Текстовое описание прохождения участков границы,  расположенных между двумя точками (существующее, уточненное)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="border" type="EnSpa2:BorderChange" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Участок границы, расположенный между двумя точками (в т.ч. уточненное описание прохождения участка границы)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="BorderChange">
+		<xs:annotation>
+			<xs:documentation>Участок границы, расположенный между двумя точками (в т.ч. уточненное описание прохождения участка границы)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="nmb_contour" type="SimAll1:p10">
+				<xs:annotation>
+					<xs:documentation>Порядковый номер контура</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="spatial_element" type="SimAll1:p22">
+				<xs:annotation>
+					<xs:documentation>Порядковый номер элемента контура</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="point1" type="SimAll1:p22">
+				<xs:annotation>
+					<xs:documentation>Порядковый номер точки1 в элементе</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="point2" type="SimAll1:p22">
+				<xs:annotation>
+					<xs:documentation>Порядковый номер точки2 в элементе</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="definition" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Существующее описание прохождения участка границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="new_definition" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Измененное (уточненное) описание прохождения участка границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<!--===Код системы координат-->
+	<xs:simpleType name="sSk_Code">
+		<xs:annotation>
+			<xs:documentation>Код системы координат (Маска: код субъекта и номер зоны, разделенные точкой)</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:maxLength value="5"/>
+			<xs:pattern value="\d{2}\.\d{1,2}"/>
+		</xs:restriction>
+	</xs:simpleType>
+</xs:schema>

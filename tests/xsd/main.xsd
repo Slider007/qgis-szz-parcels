@@ -1,0 +1,1508 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- edited with XMLSpy v2022 rel. 2 (x64) (http://www.altova.com) by  (FGBU «FKP Rosreestra») -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:iBND2="urn://x-artefacts-rosreestr-ru/interact/interact-entry-boundaries/2.0.1" xmlns:SimAll1="urn://x-artefacts-rosreestr-ru/commons/simple-types-all/1.0" xmlns:Are1="urn://x-artefacts-rosreestr-ru/commons/complex-types/area/1.0.1" xmlns:EnSpa2="urn://x-artefacts-rosreestr-ru/commons/complex-types/entity-spatial/2.0.1" xmlns:RLaw1="urn://x-artefacts-rosreestr-ru/commons/complex-types/resolution-requisites-law/1.0.1" xmlns:AdrCi2="urn://x-artefacts-rosreestr-ru/commons/complex-types/address-city/2.0.1" xmlns:dBnd3="urn://x-artefacts-rosreestr-ru/commons/directories/boundary-type/3.0.1" xmlns:dWtr1="urn://x-artefacts-rosreestr-ru/commons/directories/water-object-type/1.0.1" xmlns:dAU="urn://x-artefacts-rosreestr-ru/commons/directories/allowed-use/4.0.1" xmlns:dParc2="urn://x-artefacts-rosreestr-ru/commons/directories/parcels/2.0.1" xmlns:dZo4="urn://x-artefacts-rosreestr-ru/commons/directories/zone/4.0.1" xmlns:dMeth2="urn://x-artefacts-rosreestr-ru/commons/directories/method/2.0.1" xmlns:con1="http://rosreestr.ru/services/egrn/1.0.1/extract/common/contacts" xmlns:h2="urn://x-artefacts-rosreestr-ru/commons/complex-types/holder/2.0.1" xmlns:dPubEas="urn://x-artefacts-rosreestr-ru/commons/directories/purpose-public-easement/1.0.1" xmlns:dCateg1="urn://x-artefacts-rosreestr-ru/commons/directories/categories/1.0.1" targetNamespace="urn://x-artefacts-rosreestr-ru/interact/interact-entry-boundaries/2.0.1" elementFormDefault="qualified">
+	<!--ПРОСТЫЕ ТИПЫ ДАННЫХ:-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/simple-types-all/1.0" schemaLocation="P_CommonSimpleTypeAll_v01.xsd"/>
+	<!--СОСТАВНЫЕ ТИПЫ ДАННЫХ:-->
+	<!--Площадь-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/complex-types/area/1.0.1" schemaLocation="tArea_v01.xsd"/>
+	<!--Описание местоположения границ-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/complex-types/entity-spatial/2.0.1" schemaLocation="tEntitySpatial_v02.xsd"/>
+	<!--Реквизиты документа (федерального закона)-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/complex-types/resolution-requisites-law/1.0.1" schemaLocation="tResolutionRequisitesLaw_v01.xsd"/>
+	<!--Структурированный адрес (описание местоположения) до уровня населённого пункта-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/complex-types/address-city/2.0.1" schemaLocation="tAddressCity_v02.xsd"/>
+	<!--Сведения о лице-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/complex-types/holder/2.0.1" schemaLocation="tHolder_v02.xsd"/>
+	<!--КЛАССИФИКАТОРЫ И СПРАВОЧНИКИ:-->
+	<!--Виды объектов реестра границ-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/boundary-type/3.0.1" schemaLocation="dBoundaryType_v03.xsd"/>
+	<!--Виды водных объектов-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/water-object-type/1.0.1" schemaLocation="dWaterObjectType_v01.xsd"/>
+	<!--Классификатор видов разрешенного использования земельных участков-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/allowed-use/4.0.1" schemaLocation="dAllowedUse_v04.xsd"/>
+	<!--Вид земельного участка-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/parcels/2.0.1" schemaLocation="dParcels_v02.xsd"/>
+	<!--Вид, тип зоны, территории-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/zone/4.0.1" schemaLocation="dZone_v04.xsd"/>
+	<!--Способ образования земельного участка-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/method/2.0.1" schemaLocation="dMethod_v02.xsd"/>
+	<!--Цели установления публичного сервитута-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/purpose-public-easement/1.0.1" schemaLocation="dPurposePublicEasement_v01.xsd"/>
+	<!--Категории земель-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/categories/1.0.1" schemaLocation="dCategories_v01.xsd"/>
+	<!--===ВЕРСИЯ 02===================-->
+	<xs:element name="interact_entry_boundaries">
+		<xs:annotation>
+			<xs:documentation>Сведения, направляемые в орган регистрации прав в порядке информационного взаимодействия, для внесения в реестр границ Единого государственного реестра недвижимости (ЕГРН)</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="information_registry_boundaries" type="iBND2:InformationRegistryBoundaries">
+					<xs:annotation>
+						<xs:documentation>Сведения о границах, зонах, территориях, для внесения в реестр границ ЕГРН</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+			</xs:sequence>
+			<xs:attribute name="guid" type="SimAll1:sGUID" use="required">
+				<xs:annotation>
+					<xs:documentation>Глобальный уникальный идентификатор пакета (GUID)</xs:documentation>
+				</xs:annotation>
+			</xs:attribute>
+			<xs:attribute name="version" type="SimAll1:s2" use="required" fixed="02">
+				<xs:annotation>
+					<xs:documentation>Версия схемы</xs:documentation>
+				</xs:annotation>
+			</xs:attribute>
+		</xs:complexType>
+	</xs:element>
+	<xs:complexType name="InformationRegistryBoundaries">
+		<xs:annotation>
+			<xs:documentation>Сведения о границах, зонах, территориях, для внесения в реестр границ ЕГРН</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="information_registry_boundary" type="iBND2:InformationRegistryBoundary" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Сведения о границе, зоне, территории, для внесения в реестр границ ЕГРН</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="InformationRegistryBoundary">
+		<xs:annotation>
+			<xs:documentation>Сведения о границе, зоне, территории, для внесения в реестр границ ЕГРН</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="type_boundary" type="dBnd3:dBoundaryType">
+				<xs:annotation>
+					<xs:documentation>Вид объекта реестра границ</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="name_object" type="SimAll1:s1_1000" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Наименование объекта</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="all_border_or_part_border" type="SimAll1:sAllOrPartBorder" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Описание границы (1 - вся граница, 0 - часть (части) границы)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="information_boundary" type="iBND2:InformationBoundary">
+				<xs:annotation>
+					<xs:documentation>Сведения о границе, зоне, территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="InformationBoundary">
+		<xs:annotation>
+			<xs:documentation>Сведения о границе, зоне, территории</xs:documentation>
+		</xs:annotation>
+		<xs:choice>
+			<xs:element name="state_boundary" type="iBND2:StateBoundary">
+				<xs:annotation>
+					<xs:documentation>Сведения об установлении или изменении прохождения государственной границы Российской Федерации</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="inhabited_locality_boundary" type="iBND2:InhabitedLocalityBoundary">
+				<xs:annotation>
+					<xs:documentation>Сведения об установлении или изменении границы населенного пункта</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="surveying_project" type="iBND2:SurveyingProject">
+				<xs:annotation>
+					<xs:documentation>Сведения об утверждении или изменении проекта межевания территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="coastline" type="iBND2:Coastline">
+				<xs:annotation>
+					<xs:documentation>Сведения о береговой линии (границе водного объекта)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="zones_and_territories" type="iBND2:ZonesAndTerritories">
+				<xs:annotation>
+					<xs:documentation>Сведения об установлении или изменении границы зоны или территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="public_easement" type="iBND2:PublicEasement">
+				<xs:annotation>
+					<xs:documentation>Сведения об установлении или уточнении границы публичного сервитута</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="land_reserve" type="iBND2:LandReserve">
+				<xs:annotation>
+					<xs:documentation>Сведения о границе территории резервирования земель или об изменении сведений о такой границе</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:choice>
+	</xs:complexType>
+	<!--Сведения об установлении или изменении прохождения государственной границы Российской Федерации-->
+	<xs:complexType name="StateBoundary">
+		<xs:annotation>
+			<xs:documentation>Сведения об установлении или изменении прохождения государственной границы Российской Федерации</xs:documentation>
+		</xs:annotation>
+		<xs:choice>
+			<xs:element name="establishment_state_boundary" type="iBND2:EstablishmentStateBoundary">
+				<xs:annotation>
+					<xs:documentation>Сведения об установлении прохождения государственной границы РФ</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="changing_state_boundary" type="iBND2:ChangingStateBoundary">
+				<xs:annotation>
+					<xs:documentation>Сведения об изменении прохождения государственной границы РФ</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:choice>
+	</xs:complexType>
+	<xs:complexType name="EstablishmentStateBoundary">
+		<xs:annotation>
+			<xs:documentation>Установление прохождения участка государственной границы РФ</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="name_neighbouring_country" type="SimAll1:s1_500">
+				<xs:annotation>
+					<xs:documentation>Полное наименование сопредельного иностранного государства</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="international_treat_docs" type="RLaw1:DocumentRequisitesLaw">
+				<xs:annotation>
+					<xs:documentation>Сведения о федеральном законе, которым ратифицирован международный договор Российской Федерации, и о его официальном опубликовании</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:choice>
+				<xs:element name="contours_location" type="EnSpa2:BoundContoursLocation" minOccurs="0">
+					<xs:annotation>
+						<xs:documentation>Описание местоположения границы (графическое и, при необходимости, текстовое)</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element name="location_text" type="xs:string">
+					<xs:annotation>
+						<xs:documentation>Текстовое описание местоположения границы</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+			</xs:choice>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ChangingStateBoundary">
+		<xs:annotation>
+			<xs:documentation>Изменение прохождения участка государственной границы РФ</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="reg_numb_border" type="SimAll1:s1_50">
+				<xs:annotation>
+					<xs:documentation>Реестровый номер границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="name_neighbouring_country" type="SimAll1:s1_500">
+				<xs:annotation>
+					<xs:documentation>Полное наименование сопредельного иностранного государства</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="international_treat_docs" type="RLaw1:DocumentRequisitesLaw">
+				<xs:annotation>
+					<xs:documentation>Сведения о федеральном законе, которым ратифицирован международный договор Российской Федерации, и о его официальном опубликовании</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:choice>
+				<xs:element name="contours_location" type="EnSpa2:BoundContoursLocation" minOccurs="0">
+					<xs:annotation>
+						<xs:documentation>Описание местоположения границы (графическое и, при необходимости, текстовое)</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element name="location_text" type="xs:string">
+					<xs:annotation>
+						<xs:documentation>Текстовое описание местоположения границы</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+			</xs:choice>
+		</xs:sequence>
+	</xs:complexType>
+	<!--Сведения о береговой линии (границе водного объекта)-->
+	<xs:complexType name="Coastline">
+		<xs:annotation>
+			<xs:documentation>Сведения о береговой линии (границе водного объекта)</xs:documentation>
+		</xs:annotation>
+		<xs:choice>
+			<xs:element name="new_coastline" type="iBND2:NewCoastline">
+				<xs:annotation>
+					<xs:documentation>Внесение сведений о береговой линии (границе водного объекта)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="changing_coastline" type="iBND2:ChangingCoastline">
+				<xs:annotation>
+					<xs:documentation>Изменение сведений о береговой линии (границе водного объекта)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:choice>
+	</xs:complexType>
+	<xs:complexType name="NewCoastline">
+		<xs:annotation>
+			<xs:documentation>Внесение сведений о береговой линии (границе водного объекта)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="cadastral_district" type="SimAll1:sCadastralDistrictNull">
+				<xs:annotation>
+					<xs:documentation>Номер кадастрового района</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="water" type="iBND2:Water">
+				<xs:annotation>
+					<xs:documentation>Водный объект (тип, наименование)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="contours_location" type="EnSpa2:BoundContoursLocation">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения береговой линии (границы водного объекта)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ChangingCoastline">
+		<xs:annotation>
+			<xs:documentation>Изменение сведений о береговой линии (границе водного объекта)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="reg_numb_border" type="SimAll1:s1_50">
+				<xs:annotation>
+					<xs:documentation>Реестровый номер границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="cadastral_district" type="SimAll1:sCadastralDistrictNull">
+				<xs:annotation>
+					<xs:documentation>Номер кадастрового района</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="water" type="iBND2:Water">
+				<xs:annotation>
+					<xs:documentation>Водный объект (тип, наименование)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="contours_location" type="EnSpa2:BoundContoursLocationChange">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения береговой линии (границы водного объекта)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="Water">
+		<xs:annotation>
+			<xs:documentation>Водный объект (тип, наименование)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="water_object_type" type="dWtr1:dWaterObjectType">
+				<xs:annotation>
+					<xs:documentation>Тип водного объекта</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="water_object_name" type="SimAll1:s1_255" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Наименование водного объекта</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<!--Сведения о проекте межевания территории-->
+	<xs:complexType name="SurveyingProject">
+		<xs:annotation>
+			<xs:documentation>Сведения об утверждении или изменении проекта межевания территории</xs:documentation>
+		</xs:annotation>
+		<xs:choice>
+			<xs:element name="establishment_surveying_project" type="iBND2:EstablishmentSurveyingProject">
+				<xs:annotation>
+					<xs:documentation>Сведения об утверждении проекта межевания территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="changing_surveying_project" type="iBND2:ChangingSurveyingProject">
+				<xs:annotation>
+					<xs:documentation>Сведения об изменении проекта межевания территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:choice>
+	</xs:complexType>
+	<xs:complexType name="EstablishmentSurveyingProject">
+		<xs:annotation>
+			<xs:documentation>Утверждение проекта межевания территории</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="quarter_cad_number" type="SimAll1:sCadastralQuarterNull">
+				<xs:annotation>
+					<xs:documentation>Кадастровый номер квартала</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="forming_parcels">
+				<xs:annotation>
+					<xs:documentation>Образуемые земельные участки</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="forming_parcel" type="iBND2:FormingParcel" maxOccurs="unbounded">
+							<xs:annotation>
+								<xs:documentation>Образуемый земельный участок</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="modify_parcels" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Изменяемые земельные участки</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="modify_parcel" type="iBND2:ModifyParcel" maxOccurs="unbounded">
+							<xs:annotation>
+								<xs:documentation>Изменяемый земельный участок</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="contours_location" type="EnSpa2:BoundContoursLocation" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения границы территории, в отношении которой утвержден проект межевания</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ChangingSurveyingProject">
+		<xs:annotation>
+			<xs:documentation>Изменение проекта межевания территории</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="quarter_cad_number" type="SimAll1:sCadastralQuarterNull">
+				<xs:annotation>
+					<xs:documentation>Кадастровый номер квартала</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="survey_project_num" type="xs:string">
+				<xs:annotation>
+					<xs:documentation>Учетный номер проекта межевания территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="forming_parcels" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Образуемые земельные участки</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="forming_parcel" type="iBND2:FormingParcel" maxOccurs="unbounded">
+							<xs:annotation>
+								<xs:documentation>Образуемый земельный участок</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="modify_parcels" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Изменяемые земельные участки</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="modify_parcel" type="iBND2:ModifyParcel" maxOccurs="unbounded">
+							<xs:annotation>
+								<xs:documentation>Изменяемый земельный участок</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="contours_location" type="EnSpa2:BoundContoursLocationChange" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения границы территории, в отношении которой утвержден проект межевания</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="FormingParcel">
+		<xs:annotation>
+			<xs:documentation>Образуемый земельный (лесной) участок (многоконтурный земельный участок)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="nominal_number" type="SimAll1:s1_50">
+				<xs:annotation>
+					<xs:documentation>Условный номер образуемого земельного участка</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="subtype">
+				<xs:annotation>
+					<xs:documentation>Вид земельного участка (01-землепользование, 05-многоконтурный земельный участок)</xs:documentation>
+				</xs:annotation>
+				<xs:simpleType>
+					<xs:restriction base="dParc2:dParcels">
+						<xs:pattern value="01"/>
+						<xs:pattern value="05"/>
+					</xs:restriction>
+				</xs:simpleType>
+			</xs:element>
+			<xs:element name="area" type="Are1:LandAreaType">
+				<xs:annotation>
+					<xs:documentation>Площадь земельного участка</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="permitted_use_grad_reg" type="iBND2:PermitUse" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Разрешенное использование земельного участка</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="zu_contours_location" type="EnSpa2:ZUContoursLocation">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения границы земельного участка</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="common_use" type="iBND2:CommonUse" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Признак относения образуемого земельного участка к территории общего пользования или имуществу общего пользования</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="object_parts" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Сведения о частях земельного участка</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="object_part" type="iBND2:LandParts" maxOccurs="unbounded">
+							<xs:annotation>
+								<xs:documentation>Сведения о части земельного участка</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ModifyParcel">
+		<xs:annotation>
+			<xs:documentation>Изменяемый земельный (лесной) участок</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="cad_number" type="SimAll1:sCadastralNumberNull">
+				<xs:annotation>
+					<xs:documentation>Кадастровый номер изменяемого земельного участка</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="common_land_cad_number" type="SimAll1:sCadastralNumberNull" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Кадастровый номер единого землепользования (заполняется, если вид ЗУ (subtype) = 03-Обособленный или 04-Условный)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="subtype" type="dParc2:dParcels" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Вид земельного участка</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="area" type="Are1:LandAreaType" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Площадь земельного участка </xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="permitted_use_grad_reg" type="iBND2:PermitUse" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Разрешенное использование земельного участка</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="zu_contours_location" type="EnSpa2:ZUContoursLocation" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения границы земельного участка</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="object_parts" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Сведения о частях земельного участка</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="object_part" type="iBND2:LandParts" maxOccurs="unbounded">
+							<xs:annotation>
+								<xs:documentation>Сведения о части земельного участка</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="LandParts">
+		<xs:annotation>
+			<xs:documentation>Сведения о части земельного участка</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="definition_part" type="SimAll1:s50" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Обозначение части</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="part_number" type="SimAll1:p10" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Учетный номер части</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="area" type="Are1:LandAreaType">
+				<xs:annotation>
+					<xs:documentation>Площадь части</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="CommonUse">
+		<xs:annotation>
+			<xs:documentation>Признак относения земельного участка к территории общего пользования или имуществу общего пользования</xs:documentation>
+		</xs:annotation>
+		<xs:choice>
+			<xs:element name="territory_common_use" type="xs:boolean" fixed="true">
+				<xs:annotation>
+					<xs:documentation>Территория общего пользования (true - да)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="property_common_use" type="xs:boolean" fixed="true">
+				<xs:annotation>
+					<xs:documentation>Имущество общего пользования (true - да)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:choice>
+	</xs:complexType>
+	<!--Сведения о зонах, территориях-->
+	<xs:complexType name="ZonesAndTerritories">
+		<xs:annotation>
+			<xs:documentation>Сведения об установлении или изменении границы зоны или территории</xs:documentation>
+		</xs:annotation>
+		<xs:choice>
+			<xs:element name="establishment_zones_and_territories" type="iBND2:EstablishmentZonesTerritories">
+				<xs:annotation>
+					<xs:documentation>Сведения об установлении границы зоны или территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="changing_zones_and_territories" type="iBND2:ChangingZonesTerritories">
+				<xs:annotation>
+					<xs:documentation>Сведения об изменении границы зоны или территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:choice>
+	</xs:complexType>
+	<xs:complexType name="EstablishmentZonesTerritories">
+		<xs:annotation>
+			<xs:documentation>Установление границы зоны или территории</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="object_zones_and_territories" type="iBND2:ZoneAndTerritory">
+				<xs:annotation>
+					<xs:documentation>Общие сведения о зоне или территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="zone_parameter" type="iBND2:ZoneTerritoryParameterRestrict" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Характеристика зоны или территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="contours_location" type="EnSpa2:BoundContoursLocation">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения границы (графическое и, при необходимости, текстовое)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ChangingZonesTerritories">
+		<xs:annotation>
+			<xs:documentation>Изменение границы зоны или территории</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="reg_numb_border" type="SimAll1:s1_50">
+				<xs:annotation>
+					<xs:documentation>Реестровый номер границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="object_zones_and_territories" type="iBND2:ZoneAndTerritory">
+				<xs:annotation>
+					<xs:documentation>Общие сведения о зоне или территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="zone_parameter" type="iBND2:ZoneTerritoryParameterRestrict" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Характеристика зоны или территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="contours_location" type="EnSpa2:BoundContoursLocationChange">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения границы (графическое и, при необходимости, текстовое)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ZoneAndTerritory">
+		<xs:annotation>
+			<xs:documentation>Общие сведения о зоне или территории</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="cadastral_district" type="SimAll1:sCadastralDistrictNull">
+				<xs:annotation>
+					<xs:documentation>Номер кадастрового района</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="name_by_doc" type="SimAll1:s1000" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Вид или наименование зоны (территории) по документу</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="type_zone" type="dZo4:dZone" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Вид территориальной зоны или зоны с особыми условиями использования территории по классификатору</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="number" type="SimAll1:s255" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Номер</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="index" type="SimAll1:s255" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Индекс</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="authority_decision" type="SimAll1:s500" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Наименование органа государственной власти или органа местного самоуправления, принявшего решение об установлении зоны, о создании территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="other" type="SimAll1:s1000" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Иные идентифицирующие сведения</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="locations" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Местоположение объекта</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="location" type="AdrCi2:AddressCity" maxOccurs="unbounded">
+							<xs:annotation>
+								<xs:documentation>Местоположение объекта (до уровня населённого пункта)</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ZoneTerritoryParameterRestrict">
+		<xs:annotation>
+			<xs:documentation>Характеристика зоны или территории</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="permitted_uses" type="iBND2:PermittedUses" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Вид(ы) разрешенного использования земельных участков</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="object_permitted_uses" type="iBND2:ObjectPermittedUses" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Вид(ы) разрешенного использования объектов капитального строительства</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="content_restrict_encumbrances" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Содержание ограничений использования объектов недвижимости</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="protected_object" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Охраняемый объект (наименование, вид объекта, территории)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="oks_exploitation" minOccurs="0" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Объект капитального строительства, в связи с размещением которого установлена или изменена зона с особыми условиями использования территории, не введен в эксплуатацию</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="exploitation_info" type="xs:boolean" fixed="true">
+							<xs:annotation>
+								<xs:documentation>Информация о вводе объекта в эксплуатацию</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+						<xs:element name="cad_number" type="xs:string" minOccurs="0">
+							<xs:annotation>
+								<xs:documentation>Кадастровый номер
+                </xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="period" type="iBND2:Period" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Cрок, на который установлена зона с особыми условиями использования территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<!--Сведения о публичном сервитуте-->
+	<xs:complexType name="PublicEasement">
+		<xs:annotation>
+			<xs:documentation>Сведения об установлении или уточнении границы публичного сервитута</xs:documentation>
+		</xs:annotation>
+		<xs:choice>
+			<xs:element name="establishment_public_easement" type="iBND2:EstablishmentPublicEasement">
+				<xs:annotation>
+					<xs:documentation>Сведения об установлении границы публичного сервитута</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="changing_public_easement" type="iBND2:ChangingPublicEasement">
+				<xs:annotation>
+					<xs:documentation>Сведения об уточнении границы публичного сервитута</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:choice>
+	</xs:complexType>
+	<xs:complexType name="EstablishmentPublicEasement">
+		<xs:annotation>
+			<xs:documentation>Установление границы публичного сервитута</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="object_public_easement" type="iBND2:DataPublicEasement">
+				<xs:annotation>
+					<xs:documentation>Общие сведения о публичном сервитуте</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="parameter_public_easement" type="iBND2:ParameterPublicEasement">
+				<xs:annotation>
+					<xs:documentation>Характеристика публичного сервитута</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="contours_location" type="EnSpa2:BoundContoursLocation">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ChangingPublicEasement">
+		<xs:annotation>
+			<xs:documentation>Уточнение границы публичного сервитута</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="reg_numb_border" type="SimAll1:s1_50">
+				<xs:annotation>
+					<xs:documentation>Реестровый номер публичного сервитута</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="object_public_easement" type="iBND2:DataPublicEasement" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Общие сведения о публичном сервитуте</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="parameter_public_easement" type="iBND2:ParameterPublicEasement" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Характеристика публичного сервитута</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="contours_location" type="EnSpa2:BoundContoursLocationChange">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="DataPublicEasement">
+		<xs:annotation>
+			<xs:documentation>Общие сведения о публичном сервитуте</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="quarter_cad_number" type="SimAll1:sCadastralQuarterNull">
+				<xs:annotation>
+					<xs:documentation>Кадастровый номер квартала</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="locations" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Местоположение объекта</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="location" type="AdrCi2:AddressCity" maxOccurs="unbounded">
+							<xs:annotation>
+								<xs:documentation>Местоположение объекта (до уровня населенного пункта)</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="name_by_doc" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Вид, или наименование публичного сервитута по документу</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="authority_decision" type="SimAll1:s500" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Наименование органа государственной власти или органа местного самоуправления, принявшего решение об установлении публичного сервитута</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="other" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Иные идентифицирующие сведения</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ParameterPublicEasement">
+		<xs:annotation>
+			<xs:documentation>Характеристика публичного сервитута</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="purpose_public_easement" type="dPubEas:dPurposePublicEasement" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Цель установления публичного сервитута</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="period_type" type="iBND2:Period" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Срок публичного сервитута</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="holder_public_easement" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Обладатель публичного сервитута</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:complexContent>
+						<xs:extension base="h2:Holder"/>
+					</xs:complexContent>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="purpose_other" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Описание иной цели</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<!--Резервирование земель-->
+	<xs:complexType name="LandReserve">
+		<xs:annotation>
+			<xs:documentation>Сведения о границе территории резервирования земель или об изменении сведений о такой границе</xs:documentation>
+		</xs:annotation>
+		<xs:choice>
+			<xs:element name="establishment_land_reserve" type="iBND2:EstablishmentLandReserve">
+				<xs:annotation>
+					<xs:documentation>Cведения о территории, в отношении которой принято решение о резервировании земель для государственных или муниципальных нужд</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="changing_land_reserve" type="iBND2:ChangingLandReserve">
+				<xs:annotation>
+					<xs:documentation>Изменение сведений о территории резервирования земель</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:choice>
+	</xs:complexType>
+	<xs:complexType name="EstablishmentLandReserve">
+		<xs:annotation>
+			<xs:documentation>Cведения о территории, в отношении которой принято решение о резервировании земель для государственных или муниципальных нужд</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="cadastral_district" type="SimAll1:sCadastralDistrictNull">
+				<xs:annotation>
+					<xs:documentation>Номер кадастрового района</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="reserve_parameter" type="iBND2:ReserveParameter">
+				<xs:annotation>
+					<xs:documentation>Характеристика территории резервирования земель</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="contours_location" type="EnSpa2:BoundContoursLocation">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ChangingLandReserve">
+		<xs:annotation>
+			<xs:documentation>Изменение сведений о территории резервирования земель</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="reg_numb_border" type="SimAll1:s1_50">
+				<xs:annotation>
+					<xs:documentation>Реестровый номер границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="cadastral_district" type="SimAll1:sCadastralDistrictNull">
+				<xs:annotation>
+					<xs:documentation>Номер кадастрового района</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="reserve_parameter" type="iBND2:ReserveParameter" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Характеристика территории резервирования земель</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="contours_location" type="EnSpa2:BoundContoursLocationChange">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ReserveParameter">
+		<xs:annotation>
+			<xs:documentation>Характеристика территории резервирования земель</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="content_restrict_encumbrances" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Ограничения прав на земельные участки, расположенные в границах зарезервированных земель</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="purpose_land_reserve" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Цели резервирования земель</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="period_type" type="iBND2:PeriodInfoType" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Срок резервирования земель</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<!--Разрешенное использование-->
+	<xs:complexType name="PermittedUses">
+		<xs:annotation>
+			<xs:documentation>Вид(ы) разрешенного использования земельных участков (основной и/или условно разрешенный)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="permited_primary_uses" type="iBND2:PermitedPrimaryUses" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Основные виды разрешенного использования</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="permited_conditionally_uses" type="iBND2:PermitedConditionallyUses" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Условно разрешенные виды разрешенного использования</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PermitedPrimaryUses">
+		<xs:annotation>
+			<xs:documentation>Основные виды разрешенного использования</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="permited_primary_use" type="iBND2:PermittedPrimary" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Основной вид разрешенного использования</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PermitedConditionallyUses">
+		<xs:annotation>
+			<xs:documentation>Условно разрешенные виды разрешенного использования</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="permited_conditionally_use" type="iBND2:PermittedPrimary" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Условно разрешенный вид разрешенного использования</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PermittedPrimary">
+		<xs:annotation>
+			<xs:documentation>Вид разрешенного использования (основной/условно разрешенный)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="permitted_use_text" type="SimAll1:s4000">
+				<xs:annotation>
+					<xs:documentation>Разрешенное использование (текстовое описание)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="land_use" type="dAU:dAllowedUse" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Разрешенное использование (по классификатору)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="permitted_ancillaries" type="iBND2:PermittedAncillaries" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Вспомогательные виды</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="limit_size" type="iBND2:LimitSize" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Предельные размеры участков</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PermittedAncillaries">
+		<xs:annotation>
+			<xs:documentation>Вспомогательные виды</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="permitted_ancillary" type="iBND2:PermitUse" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Вспомогательный вид</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PermitUse">
+		<xs:annotation>
+			<xs:documentation>Вид разрешенного использования</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="permitted_use_text" type="SimAll1:s4000">
+				<xs:annotation>
+					<xs:documentation>Разрешенное использование (текстовое описание)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="land_use" type="dAU:dAllowedUse" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Разрешенное использование (по классификатору)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="LimitFloors">
+		<xs:annotation>
+			<xs:documentation>Предельное количество этажей (в том числе подземных)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="limit_floor" type="SimAll1:sNe200">
+				<xs:annotation>
+					<xs:documentation>Предельное количество этажей (в том числе подземных)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="limit_underground_floors" type="SimAll1:sNe200" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Предельное количество подземных этажей</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="LimitSize">
+		<xs:annotation>
+			<xs:documentation>Предельные размеры</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="max" type="SimAll1:d20_2" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Максимум</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="min" type="SimAll1:d20_2" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Минимум</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ObjectPermittedUses">
+		<xs:annotation>
+			<xs:documentation>Вид(ы) разрешенного использования объектов капитального строительства</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="object_permitted_use" type="iBND2:ObjectPermittedUse" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Вид разрешенного использования объекта капитального строительства</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ObjectPermittedUse">
+		<xs:annotation>
+			<xs:documentation>Вид разрешенного использования объекта капитального строительства</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="name" type="xs:string">
+				<xs:annotation>
+					<xs:documentation>Наименование вида использования</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="limit_parameters" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Предельные параметры разрешенного строительства, реконструкции объектов капитального строительства</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<!--Граница населённого пункта-->
+	<xs:complexType name="InhabitedLocalityBoundary">
+		<xs:annotation>
+			<xs:documentation>Сведения об установлении или изменении границы населенного пункта</xs:documentation>
+		</xs:annotation>
+		<xs:choice>
+			<xs:element name="establishment_inhabited_locality" type="iBND2:EstablishmentInhabitedBoundary">
+				<xs:annotation>
+					<xs:documentation>Сведения об установлении границы населенного пункта</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="changing_inhabited_locality" type="iBND2:ChangingInhabitedBoundary">
+				<xs:annotation>
+					<xs:documentation>Сведения об изменении границы населенного пункта</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:choice>
+	</xs:complexType>
+	<xs:complexType name="EstablishmentInhabitedBoundary">
+		<xs:annotation>
+			<xs:documentation>Установление границы населенного пункта</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="cadastral_district" type="SimAll1:sCadastralDistrictNull">
+				<xs:annotation>
+					<xs:documentation>Номер кадастрового района</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="location" type="AdrCi2:AddressCity">
+				<xs:annotation>
+					<xs:documentation>Местоположение объекта</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="contours_location" type="EnSpa2:BoundContoursLocation">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения границы (графическое и, при необходимости, текстовое)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ChangingInhabitedBoundary">
+		<xs:annotation>
+			<xs:documentation>Изменение границы населенного пункта</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="reg_numb_border" type="SimAll1:s1_50">
+				<xs:annotation>
+					<xs:documentation>Реестровый номер границы</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="cadastral_district" type="SimAll1:sCadastralDistrictNull">
+				<xs:annotation>
+					<xs:documentation>Номер кадастрового района</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="location" type="AdrCi2:AddressCity">
+				<xs:annotation>
+					<xs:documentation>Местоположение объекта</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="contours_location" type="EnSpa2:BoundContoursLocationChange">
+				<xs:annotation>
+					<xs:documentation>Описание местоположения границы (графическое и, при необходимости, текстовое)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<!--Общие типы-->
+	<xs:complexType name="Period">
+		<xs:annotation>
+			<xs:documentation>Период (срок действия) или бессрочно</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="start_date" type="xs:date" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Дата начала действия</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="end_date" type="xs:date" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Дата прекращения действия</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="deal_validity_time" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Продолжительность</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="indefinitely" type="xs:boolean" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Бессрочно (true - да)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PeriodInfoType">
+		<xs:annotation>
+			<xs:documentation>Период (срок действия)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="start_date" type="xs:date" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Дата начала действия</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="end_date" type="xs:date" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Дата прекращения действия</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="deal_validity_time" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Срок действия (Продолжительность)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<!--=============Дополнительные (неуточненные) типы-->
+	<xs:complexType name="ZoneTerritoryParameterRestrictAll">
+		<xs:annotation>
+			<xs:documentation>Характеристика зоны или территории</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="permitted_uses" type="iBND2:PermittedUses" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Вид(ы) разрешенного использования земельных участков</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="object_permitted_uses" type="iBND2:ObjectPermittedUses" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Вид(ы) разрешенного использования объектов капитального строительства</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="content_restrict_encumbrances" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Содержание ограничений использования объектов недвижимости</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="protected_object" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Охраняемый объект (наименование, вид объекта, территории)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="not_put_into_operation" type="xs:boolean" fixed="true" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Объект капитального строительства, в связи с размещением которого установлена или изменена зона с особыми условиями использования территории, не введен в эксплуатацию (true - да)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="period" type="iBND2:Period" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Cрок, на который установлена зона с особыми условиями использования территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="limit_parameters" type="iBND2:LimitParameters" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Предельные параметры разрешенного строительства, реконструкции объектов капитального строительства</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="limit_" type="iBND2:LimitParametersAll" minOccurs="0"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ZoneTerritoryParameterRestrictAllOld">
+		<xs:annotation>
+			<xs:documentation>Характеристика зоны или территории</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="permitted_uses" type="iBND2:PermittedUses" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Вид(ы) разрешенного использования земельных участков</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="object_permitted_uses" type="iBND2:ObjectPermittedUses" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Вид(ы) разрешенного использования объектов капитального строительства</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="content_restrict_encumbrances" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Содержание ограничений использования объектов недвижимости</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="protected_object" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Охраняемый объект (наименование, вид объекта, территории)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="not_put_into_operation" type="xs:boolean" fixed="true" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Объект капитального строительства, в связи с размещением которого установлена или изменена зона с особыми условиями использования территории, не введен в эксплуатацию (true - да)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="period" type="iBND2:Period" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Cрок, на который установлена зона с особыми условиями использования территории</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="limit_parameters" type="iBND2:LimitParameters" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Предельные параметры разрешенного строительства, реконструкции объектов капитального строительства</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="LimitParametersAll">
+		<xs:annotation>
+			<xs:documentation>Предельные (минимальные и (или) максимальные) размеры земельных участков и предельные параметры разрешенного строительства, реконструкции объектов капитального строительства</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="limit_parameter" type="iBND2:LimitParameterAll" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Предельные параметры</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="LimitParameterAll">
+		<xs:annotation>
+			<xs:documentation>Предельные параметры</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="limit_size" type="iBND2:LimitSize" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Предельные (минимальные и (или) максимальные) размеры участков</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="limit_area" type="iBND2:LimitSize" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Предельная площадь</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="min_margins_from_borders" type="iBND2:LimitMin" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Минимальные отступы от границ земельных участков, за пределами которых запрещено строительство</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="limit_floors" type="iBND2:LimitFloors" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Предельное количество этажей (в том числе подземных)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="limit_height" type="iBND2:LimitMax" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Предельная высота</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="limit_percent" type="iBND2:LimitMax" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Максимальный процент застройки в границах земельного участка</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="other_parameters" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Иные предельные параметры разрешенного строительства, реконструкции объектов капитального строительства</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="other_parameter" maxOccurs="unbounded">
+							<xs:annotation>
+								<xs:documentation>Иной параметр</xs:documentation>
+							</xs:annotation>
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="description_other" type="xs:string">
+										<xs:annotation>
+											<xs:documentation>Описание параметра</xs:documentation>
+										</xs:annotation>
+									</xs:element>
+									<xs:element name="limit_size" type="iBND2:LimitSize" minOccurs="0">
+										<xs:annotation>
+											<xs:documentation>Размер</xs:documentation>
+										</xs:annotation>
+									</xs:element>
+								</xs:sequence>
+							</xs:complexType>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="LimitParameters">
+		<xs:annotation>
+			<xs:documentation>Предельные параметры разрешенного строительства, реконструкции объектов капитального строительства
+</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="min_indent_border" type="SimAll1:d20_2" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Минимальный отступ от границ земельных участков, за пределами которых запрещено строительство (в метрах)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="limit_floors" type="iBND2:LimitFloors" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Предельное количество этажей (в том числе подземных)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="maximum_height" type="SimAll1:d20_2" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Предельная высота (в метрах)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="max_development" type="SimAll1:sNe4" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Максимальный процент застройки в границах земельного участка</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="other_limiting_parameters" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Иные предельные параметры разрешенного строительства, реконструкции объектов капитального строительства</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="LimitMax">
+		<xs:annotation>
+			<xs:documentation>Предельный максимум</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="max" type="SimAll1:d20_2" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Максимум</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="LimitMin">
+		<xs:annotation>
+			<xs:documentation>Предельный минимум</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="min" type="SimAll1:d20_2" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Минимум</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ObjectPermittedUses2">
+		<xs:annotation>
+			<xs:documentation>Вид(ы) разрешенного использования объектов капитального строительства</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="object_permitted_use" type="iBND2:PermittedUsesName" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Вид разрешенного использования объекта капитального строительства</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PermittedUsesName">
+		<xs:annotation>
+			<xs:documentation>Вид разрешенного использования</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="name" type="xs:string">
+				<xs:annotation>
+					<xs:documentation>Наименование вида использования</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PeriodOpt">
+		<xs:annotation>
+			<xs:documentation>Cрок, на который установлена зона с особыми условиями использования территории</xs:documentation>
+		</xs:annotation>
+		<xs:choice>
+			<xs:element name="period_type" type="iBND2:PeriodInfoType">
+				<xs:annotation>
+					<xs:documentation>Установленный срок</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="indefinitely" type="xs:boolean" fixed="true">
+				<xs:annotation>
+					<xs:documentation>Бессрочно (true - да)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:choice>
+	</xs:complexType>
+</xs:schema>

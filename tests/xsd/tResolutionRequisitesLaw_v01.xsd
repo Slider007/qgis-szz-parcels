@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:RLaw1="urn://x-artefacts-rosreestr-ru/commons/complex-types/resolution-requisites-law/1.0.1" xmlns:SimAll1="urn://x-artefacts-rosreestr-ru/commons/simple-types-all/1.0" xmlns:dAl5="urn://x-artefacts-rosreestr-ru/commons/directories/all-documents/5.0.1" targetNamespace="urn://x-artefacts-rosreestr-ru/commons/complex-types/resolution-requisites-law/1.0.1" elementFormDefault="qualified">
+	<!--ПРОСТЫЕ ТИПЫ ДАННЫХ:-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/simple-types-all/1.0" schemaLocation="P_CommonSimpleTypeAll_v01.xsd"/>
+	<!--КЛАССИФИКАТОРЫ И СПРАВОЧНИКИ:-->
+	<!--Все документы-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/all-documents/5.0.1" schemaLocation="dAllDocuments_v05.xsd"/>
+	<!--=====ВЕРСИЯ 1:-->
+	<xs:complexType name="DocumentRequisitesLaw">
+		<xs:annotation>
+			<xs:documentation>Реквизиты документа</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="document_code" type="dAl5:dAllDocuments">
+				<xs:annotation>
+					<xs:documentation source="http://esunsi.at-consulting.ru:8000/catalogs/98/items">Код документа</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="document_name" type="SimAll1:sDocName">
+				<xs:annotation>
+					<xs:documentation>Наименование</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="document_number" type="SimAll1:sDocNumber">
+				<xs:annotation>
+					<xs:documentation> Номер документа</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="document_date" type="xs:date">
+				<xs:annotation>
+					<xs:documentation>Дата документа</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="document_issuer" type="SimAll1:s500">
+				<xs:annotation>
+					<xs:documentation>Орган власти, организация. Автор документа</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="special_marks" type="SimAll1:s1000" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Особые отметки</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="source_publication" type="SimAll1:s500">
+				<xs:annotation>
+					<xs:documentation>Сведения об официальном опубликовании</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="DocumentRequisitesNotary">
+		<xs:annotation>
+			<xs:documentation>Реквизиты документа (в том числе нотариальное удостоверение документа)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="document_code" type="dAl5:dAllDocuments">
+				<xs:annotation>
+					<xs:documentation source="http://esunsi.at-consulting.ru:8000/catalogs/98/items">Код документа</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="document_name" type="SimAll1:sDocName" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Наименование</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="document_series" type="SimAll1:s45" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Серия документа</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="document_number" type="SimAll1:sDocNumber">
+				<xs:annotation>
+					<xs:documentation> Номер документа</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="document_date" type="xs:date">
+				<xs:annotation>
+					<xs:documentation>Дата документа</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="document_issuer" type="SimAll1:s500">
+				<xs:annotation>
+					<xs:documentation>Организация, выдавшая документ</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="subdivision_code" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Код подразделения</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="doc_notarized" type="RLaw1:DocNotarized" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Нотариальное удостоверение документа</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="DocNotarized">
+		<xs:annotation>
+			<xs:documentation>Нотариальное удостоверение документа</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="notarize_date" type="xs:date">
+				<xs:annotation>
+					<xs:documentation>Дата нотариального удостоверения</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="notary_name" type="SimAll1:s250">
+				<xs:annotation>
+					<xs:documentation>Фамилия и инициалы нотариуса</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="notary_action_num" type="SimAll1:s50">
+				<xs:annotation>
+					<xs:documentation>Номер в реестре регистрации нотариальных действий</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+</xs:schema>

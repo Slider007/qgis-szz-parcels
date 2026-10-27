@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:dTopo1="urn://x-artefacts-rosreestr-ru/commons/directories/type-topology/1.0.1" targetNamespace="urn://x-artefacts-rosreestr-ru/commons/directories/type-topology/1.0.1" elementFormDefault="qualified">
+	<xs:simpleType name="dTypeTopology">
+		<xs:annotation>
+			<xs:documentation>Виды топологии элемента</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="01">
+				<xs:annotation>
+					<xs:documentation>Полигон</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="02">
+				<xs:annotation>
+					<xs:documentation>Полилиния</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="03">
+				<xs:annotation>
+					<xs:documentation>Окружность</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+		</xs:restriction>
+	</xs:simpleType>
+</xs:schema>

@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:AdrCi2="urn://x-artefacts-rosreestr-ru/commons/complex-types/address-city/2.0.1" xmlns:SimAll1="urn://x-artefacts-rosreestr-ru/commons/simple-types-all/1.0" xmlns:dRF3="urn://x-artefacts-rosreestr-ru/commons/directories/regions/3.0.1" targetNamespace="urn://x-artefacts-rosreestr-ru/commons/complex-types/address-city/2.0.1" elementFormDefault="qualified">
+	<!--ПРОСТЫЕ ТИПЫ ДАННЫХ:-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/simple-types-all/1.0" schemaLocation="P_CommonSimpleTypeAll_v01.xsd"/>
+	<!--КЛАССИФИКАТОРЫ И СПРАВОЧНИКИ:-->
+	<!--Справочник субъектов РФ-->
+	<xs:import namespace="urn://x-artefacts-rosreestr-ru/commons/directories/regions/3.0.1" schemaLocation="dRegionsRF_v03.xsd"/>
+	<!--=====ВЕРСИЯ 2:-->
+	<!--======Структурированный адрес (описание местоположения) до уровня населённого пункта-->
+	<xs:complexType name="AddressCity">
+		<xs:annotation>
+			<xs:documentation>Описание местоположения (адрес) до уровня населённого пункта</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="fias" type="SimAll1:sFIAS" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Код ФИАС (уникальный идентификационный код адресного объекта)</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="okato" type="SimAll1:OKATOType" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>ОКАТО</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="kladr" type="SimAll1:s20" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>КЛАДР</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="oktmo" type="SimAll1:OKTMOType" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>ОКТМО</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="postal_code" type="SimAll1:PostalCodeRFType" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Почтовый индекс</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="region" type="dRF3:dRegionsRF">
+				<xs:annotation>
+					<xs:documentation>Код региона</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="district" type="AdrCi2:District" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Район</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="city" type="AdrCi2:City" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Муниципальное образование</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="urban_district" type="AdrCi2:UrbanDistrict" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Городской район</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="soviet_village" type="AdrCi2:SovietVillage" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Сельсовет</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="locality" type="AdrCi2:Locality" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Населённый пункт</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="District">
+		<xs:annotation>
+			<xs:documentation>Район</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="type_district" type="SimAll1:s255">
+				<xs:annotation>
+					<xs:documentation source="http://esunsi.at-consulting.ru/catalogs/42/items?hierarchy_view=false">Тип</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="name_district" type="SimAll1:s255">
+				<xs:annotation>
+					<xs:documentation>Наименование</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="City">
+		<xs:annotation>
+			<xs:documentation>Муниципальное образование</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="type_city" type="SimAll1:s255">
+				<xs:annotation>
+					<xs:documentation source="http://esunsi.at-consulting.ru/catalogs/42/items?hierarchy_view=false">Тип</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="name_city" type="SimAll1:s255">
+				<xs:annotation>
+					<xs:documentation>Наименование</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="UrbanDistrict">
+		<xs:annotation>
+			<xs:documentation>Городской район</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="type_urban_district" type="SimAll1:s255">
+				<xs:annotation>
+					<xs:documentation>Тип</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="name_urban_district" type="SimAll1:s255">
+				<xs:annotation>
+					<xs:documentation>Наименование</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="SovietVillage">
+		<xs:annotation>
+			<xs:documentation>Сельсовет</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="type_soviet_village" type="SimAll1:s255">
+				<xs:annotation>
+					<xs:documentation>Тип</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="name_soviet_village" type="SimAll1:s255">
+				<xs:annotation>
+					<xs:documentation>Наименование</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="Locality">
+		<xs:annotation>
+			<xs:documentation>Населённый пункт</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="type_locality" type="SimAll1:s255">
+				<xs:annotation>
+					<xs:documentation source="http://esunsi.at-consulting.ru/catalogs/42/items?hierarchy_view=false">Тип</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="name_locality" type="SimAll1:s255">
+				<xs:annotation>
+					<xs:documentation>Наименование</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+</xs:schema>

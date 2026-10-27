@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:dPubEas="urn://x-artefacts-rosreestr-ru/commons/directories/purpose-public-easement/1.0.1" targetNamespace="urn://x-artefacts-rosreestr-ru/commons/directories/purpose-public-easement/1.0.1" elementFormDefault="qualified">
+	<!--Дата создания справочника 13.04.2022. Дата изменения 24.05. 2022. Номер справочника в ЕС УНСИ 106-->
+	<xs:simpleType name="dPurposePublicEasement">
+		<xs:annotation>
+			<xs:documentation>Цели установления публичного сервитута</xs:documentation>
+		</xs:annotation>
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="024001000000">
+				<xs:annotation>
+					<xs:documentation>Для прохода или проезда через земельный участок, в том числе в целях обеспечения свободного доступа граждан к водному объекту общего пользования и его береговой полосе</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="024002000000">
+				<xs:annotation>
+					<xs:documentation>Для размещения на земельном участке межевых знаков, геодезических пунктов государственных геодезических сетей, гравиметрических пунктов, нивелирных пунктов и подъездов к ним</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="024003000000">
+				<xs:annotation>
+					<xs:documentation>Для проведения дренажных и мелиоративных работ на земельном участке</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="024004000000">
+				<xs:annotation>
+					<xs:documentation>Для забора (изъятия) водных ресурсов из водных объектов и водопоя</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="024005000000">
+				<xs:annotation>
+					<xs:documentation>Для прогона сельскохозяйственных животных через земельный участок</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="024006000000">
+				<xs:annotation>
+					<xs:documentation>Для сенокошения, выпаса сельскохозяйственных животных в установленном порядке на земельных участках в сроки, продолжительность которых соответствует местным условиям и обычаям</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="024007000000">
+				<xs:annotation>
+					<xs:documentation>Для использования земельного участка в целях охоты, рыболовства, аквакультуры (рыбоводства)</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="024008000000">
+				<xs:annotation>
+					<xs:documentation>Размещение объектов электросетевого хозяйства, тепловых сетей, водопроводных сетей, сетей водоотведения, линий и сооружений связи, линейных объектов системы газоснабжения, нефтепроводов и нефтепродуктопроводов, их неотъемлемых технологических частей, если указанные объекты являются объектами федерального, регионального или местного значения, либо необходимы для организации электро-, газо-, тепло-, водоснабжения населения и водоотведения, подключения (технологического присоединения) к сетям инженерно-технического обеспечения, либо переносятся в связи с изъятием земельных участков, на которых они ранее располагались, для государственных или муниципальных нужд (далее также - инженерные сооружения)</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="024009000000">
+				<xs:annotation>
+					<xs:documentation>Складирование строительных и иных материалов, размещение временных или вспомогательных сооружений (включая ограждения, бытовки, навесы) и (или) строительной техники, которые необходимы для обеспечения строительства, реконструкции, ремонта объектов транспортной инфраструктуры федерального, регионального или местного значения, на срок указанных строительства, реконструкции, ремонта</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="024010000000">
+				<xs:annotation>
+					<xs:documentation>Устройство пересечений автомобильных дорог или железнодорожных путей с железнодорожными путями общего пользования на земельных участках, находящихся в государственной собственности, в границах полос отвода железных дорог, а также устройство пересечений автомобильных дорог или железнодорожных путей с автомобильными дорогами или примыканий автомобильных дорог к другим автомобильным дорогам на земельных участках, находящихся в государственной или муниципальной собственности, в границах полосы отвода автомобильной дороги</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="024011000000">
+				<xs:annotation>
+					<xs:documentation>Размещение автомобильных дорог и железнодорожных путей в туннелях</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="024012000000">
+				<xs:annotation>
+					<xs:documentation>Проведение инженерных изысканий в целях подготовки документации по планировке территории, предусматривающей размещение линейных объектов федерального, регионального или местного значения, проведение инженерных изысканий для строительства, реконструкции указанных объектов, а также сооружений</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+			<xs:enumeration value="024099000000">
+				<xs:annotation>
+					<xs:documentation>Иное</xs:documentation>
+				</xs:annotation>
+			</xs:enumeration>
+		</xs:restriction>
+	</xs:simpleType>
+</xs:schema>

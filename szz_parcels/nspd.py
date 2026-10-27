@@ -27,6 +27,9 @@ URL = "https://nspd.gov.ru/api/geoportal/v1/intersects?typeIntersect=fullObject"
 # поиск объекта ЕГРН по кадастровому номеру — как строка поиска карты (и модуль «Поиск адреса»)
 SEARCH_URL = "https://nspd.gov.ru/api/geoportal/v2/search/geoportal"
 CATEGORY = 36368  # «Земельные участки из ЕГРН»
+# «Территориальные зоны» (ПЗЗ) — номер из каталога слоёв карты НСПД (layerId 875838; снимок
+# каталога 29.09.2026 в github.com/flycited2-dotcom/NSPD, в нём и 36368 участков совпадает)
+TERR_ZONES = 472819
 CA_BUNDLE = os.path.join(os.path.dirname(__file__), "certs", "nspd-ca-bundle.pem")
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
@@ -59,10 +62,10 @@ class NspdError(Exception):
     """Понятная пользователю причина, почему участки не загрузились."""
 
 
-def payload(area_wgs84):
+def payload(area_wgs84, category=CATEGORY):
     """Тело запроса: область — GeoJSON в EPSG:4326."""
     geometry = json.loads(area_wgs84.asJson(7))
-    return {"categories": [{"id": CATEGORY}],
+    return {"categories": [{"id": category}],
             "geom": {"type": "FeatureCollection",
                      "features": [{"type": "Feature", "geometry": geometry, "properties": {}}]}}
 
@@ -116,7 +119,7 @@ TRANSPORT = post
 SLEEP = time.sleep
 
 
-def _request(area_wgs84, feedback, url=None):
+def _request(area_wgs84, feedback, url=None, category=CATEGORY):
     """Ответ НСПД по одной области (или поиск по номеру — url) с повторами.
     None — область слишком большая."""
     status = 0
@@ -126,7 +129,7 @@ def _request(area_wgs84, feedback, url=None):
         if url:
             status, data = TRANSPORT(None, feedback, url)
         else:
-            status, data = TRANSPORT(payload(area_wgs84), feedback)
+            status, data = TRANSPORT(payload(area_wgs84, category), feedback)
         if status == 200:
             try:
                 answer = json.loads(data.decode("utf-8"))
@@ -175,9 +178,9 @@ def _quarters(area):
             yield part
 
 
-def fetch(area_wgs84, feedback=None, depth=0):
+def fetch(area_wgs84, feedback=None, depth=0, category=CATEGORY):
     """Все участки, пересекающие область (EPSG:4326). Большая область — по частям."""
-    features = _request(area_wgs84, feedback)
+    features = _request(area_wgs84, feedback, category=category)
     if features is not None:
         return features
     if depth >= MAX_SPLIT:
@@ -185,7 +188,7 @@ def fetch(area_wgs84, feedback=None, depth=0):
                         "Уменьшите расстояние поиска.")
     result = []
     for part in _quarters(area_wgs84):
-        result.extend(fetch(part, feedback, depth + 1))
+        result.extend(fetch(part, feedback, depth + 1, category))
     return result
 
 
