@@ -396,8 +396,11 @@ class SzzDialog(QDialog):
             return next((l for l in layers if test(l)), None)
 
         polygon = Qgis.GeometryType.Polygon
-        self.parcels.setLayer(saved["parcels"] or first(
-            lambda l: l.geometryType() == polygon and core.find_field(l.fields().names(), core.CAD_FIELDS)))
+        # участки — лучший по очкам: у выгрузок НСПД поле cad_num есть и у зданий, и у сооружений,
+        # и первым по порядку проекта брался слой «Здания» (у пользователя 20.11 — реестр зданий)
+        candidates = [l for l in layers if parcel_score(l) > 0]
+        best = max(candidates, key=parcel_score) if candidates else None
+        self.parcels.setLayer(saved["parcels"] or best)
         self.szz.setLayer(saved["szz"] or first(
             lambda l: l.geometryType() == polygon and any(w in l.name().lower() for w in ("сзз", "санитарно"))))
         enterprise = saved["enterprise"] or first(
@@ -948,6 +951,32 @@ def _numbered(path, number):
         return path
     stem, ext = os.path.splitext(path)
     return "{} {}{}".format(stem, number, ext)
+
+
+# слои с кадастровым номером, но не земельные участки: здания, сооружения, ОКС, зоны, кварталы
+NOT_PARCELS = ("здани", "сооруж", "окс", "онс", "квартал", "зоуит", "территориальн", "зоны_и", "сервитут",
+               "build", "construct")
+PARCEL_WORDS = ("участ", "земельн", "егрн", "кпт", "parcel", "land")
+
+
+def parcel_score(layer):
+    """Насколько слой похож на земельные участки: 0 — не участки."""
+    if layer.geometryType() != Qgis.GeometryType.Polygon:
+        return 0
+    names = layer.fields().names()
+    if not core.find_field(names, core.CAD_FIELDS):
+        return 0
+    name = layer.name().lower()
+    if any(w in name for w in NOT_PARCELS):
+        return 0
+    score = 1
+    if core.find_field(names, core.CATEGORY_FIELDS):
+        score += 2  # категория земель бывает только у участков
+    if any(w in name for w in PARCEL_WORDS):
+        score += 2
+    if layer.featureCount() > 0:
+        score += 1
+    return score
 
 
 RESULT_NAMES = ("в границах сзз", "за границей сзз", "за границей предприятия")

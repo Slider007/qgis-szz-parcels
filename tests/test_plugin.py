@@ -1574,6 +1574,21 @@ class PluginTest(unittest.TestCase):
         self.assertIs(again.enterprise.currentLayer(), lines)  # выбор прошлого расчёта
         self.assertIs(again.parcels.currentLayer(), self.parcels)
 
+    def test_buildings_not_taken_for_parcels(self):
+        """Здания и сооружения НСПД тоже с cad_num; первым в проекте был слой «Здания» — его и брали."""
+        QgsProject.instance().removeMapLayer(self.parcels.id())
+        buildings = layer("Polygon", [(rect(0, 0, 10, 10), ["23:47:0107010:500", "", ""])],
+                          "&field=cad_num:string&field=build_record_type_value:string&field=x:string", name="Здания")
+        works = layer("Polygon", [(rect(0, 0, 10, 10), ["23:47:0107010:501", "", ""])],
+                      "&field=cad_number:string&field=y:string&field=z:string", name="Сооружения")
+        QgsProject.instance().addMapLayer(buildings)
+        QgsProject.instance().addMapLayer(works)
+        parcels = parcels_layer()
+        parcels.setName("земельный_участок_pl")
+        QgsProject.instance().addMapLayer(parcels)
+        dialog = self.open()
+        self.assertIs(dialog.parcels.currentLayer(), parcels)
+
     def test_result_layers_never_default(self):
         """Без запомненного выбора эвристика не берёт слои результата модуля."""
         QgsProject.instance().removeMapLayer(self.enterprise.id())
