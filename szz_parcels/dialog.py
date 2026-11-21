@@ -525,7 +525,7 @@ class SzzDialog(QDialog):
         self.zone_selected.setText("выделенные на карте ({})".format(selected))
         self.zone_selected.setEnabled(selected > 0)
         if selected == 0 and self.zone_mode.checkedId() == SELECTED:
-            self.zone_all.setChecked(True)
+            self.zone_list_radio.setChecked(True)
 
     def _zone_label_expression(self, layer):
         field = core.find_field(layer.fields().names(), core.ZONE_NAME_FIELDS)
@@ -541,6 +541,7 @@ class SzzDialog(QDialog):
         self.zone_list.blockSignals(True)
         self.zone_list.clear()
         if many:
+            own = self._enterprise_area(szz.crs())
             expression = QgsExpression(self._zone_label_expression(szz))
             context = QgsExpressionContext(
                 QgsExpressionContextUtils.globalProjectLayerScopes(szz))
@@ -552,16 +553,30 @@ class SzzDialog(QDialog):
                 item.setToolTip(label)
                 item.setData(Qt.ItemDataRole.UserRole, feature.id())
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Unchecked)
+                # своя зона — та, что накрывает границу предприятия; чужие не отмечаются
+                mine = own is not None and feature.hasGeometry() and feature.geometry().intersects(own)
+                item.setCheckState(Qt.CheckState.Checked if mine else Qt.CheckState.Unchecked)
                 self.zone_list.addItem(item)
             if szz.selectedFeatureCount() > 0:
                 self.zone_selected.setChecked(True)
             elif self.zone_mode.checkedId() < 0:
-                self.zone_all.setChecked(True)
+                # не объединять по умолчанию: в слое СЗЗ бывают чужие зоны (у пользователя 21.11 —
+                # пять соседних предприятий): в списке отмечается своя, остальные — по желанию
+                self.zone_list_radio.setChecked(True)
         self.zone_list.blockSignals(False)
         self.zone_list.setEnabled(self.zone_mode.checkedId() == LIST)
         # вопрос о зонах появился или исчез — окно по содержимому, без пустого места
         self._fit()
+
+    def _enterprise_area(self, crs):
+        """Граница предприятия (выделенные или все объекты) одной геометрией в СК crs."""
+        layer = self.enterprise.currentLayer()
+        if layer is None:
+            return None
+        features = (layer.getSelectedFeatures() if self.enterprise_selected.isChecked()
+                    else layer.getFeatures())
+        parts = self._geometries(list(features), layer.crs(), crs)
+        return QgsGeometry.unaryUnion(parts) if parts else None
 
     def _zone_mode_changed(self, *args):
         self.zone_list.setEnabled(self.zone_mode.checkedId() == LIST)

@@ -1272,10 +1272,18 @@ class PluginTest(unittest.TestCase):
         self.assertTrue(dialog._many_zones)
         self.assertEqual(dialog.zone_list.count(), 2)
         self.assertIn("СЗЗ ПС Тестовая", dialog.zone_list.item(0).text())
-        # все зоны
+        # по умолчанию зоны не объединяются: отмечена своя (накрывает границу), чужая — нет
+        self.assertEqual(dialog.zone_mode.checkedId(), 2)
+        self.assertEqual(dialog.zone_list.item(0).checkState(), Qt.CheckState.Checked)
+        self.assertEqual(dialog.zone_list.item(1).checkState(), Qt.CheckState.Unchecked)
+        self.assertEqual(dialog.counts, (3, 4, 1))
+        # все зоны — только если выбрать явно
+        dialog.zone_all.setChecked(True)
+        dialog.update_preview()
         self.assertEqual(dialog.counts, (3, 4, 1))
         # список без отметок — ошибка, кнопка недоступна
         dialog.zone_list_radio.setChecked(True)
+        dialog.zone_list.item(0).setCheckState(Qt.CheckState.Unchecked)
         dialog.update_preview()
         self.assertIn("хотя бы одну зону", dialog.error)
         self.assertFalse(dialog.run_button.isEnabled())
@@ -1808,6 +1816,7 @@ class PluginTest(unittest.TestCase):
 
     def test_coordinates_in_dialog_and_map(self):
         dialog = self.open()
+        dialog.zone_all.setChecked(True)  # два контура: обе зоны слоя
         self.assertTrue(dialog.coords.isChecked())
         params = dialog.parameters()
         self.assertTrue(params["COORDS"])
